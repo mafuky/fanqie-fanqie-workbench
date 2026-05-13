@@ -189,8 +189,8 @@ export function App() {
                   background: 'linear-gradient(135deg, var(--text-primary), var(--accent))',
                   WebkitBackgroundClip: 'text',
                   WebkitTextFillColor: 'transparent',
-                }}>番茄写作台</h1>
-                <p style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.2, letterSpacing: '0.02em' }}>Fanqie Workbench</p>
+                }}>小番茄写作</h1>
+                <p style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.2, letterSpacing: '0.02em' }}>AI 网文工作台</p>
               </div>
             )}
           </div>
