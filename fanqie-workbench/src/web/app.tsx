@@ -30,12 +30,34 @@ const navItems: { key: Page; label: string; icon: ReactNode }[] = [
 function TomatoLogo({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <ellipse cx="32" cy="36" rx="24" ry="22" fill="#f97316" />
-      <ellipse cx="24" cy="30" rx="8" ry="6" fill="white" opacity="0.15" />
-      <path d="M32 14 C32 14 30 18 30 20 C30 22 32 22 32 22 C32 22 34 22 34 20 C34 18 32 14 32 14Z" fill="#22c55e" />
-      <path d="M26 18 C22 12 18 14 20 18 C22 22 26 20 26 18Z" fill="#16a34a" />
-      <path d="M38 18 C42 12 46 14 44 18 C42 22 38 20 38 18Z" fill="#16a34a" />
-      <path d="M32 16 C30 10 32 8 34 10 C36 12 34 16 32 16Z" fill="#15803d" />
+      {/* Shadow */}
+      <ellipse cx="32" cy="54" rx="16" ry="3" fill="currentColor" opacity="0.06" />
+      {/* Body */}
+      <ellipse cx="32" cy="35" rx="22" ry="20" fill="#ef4423" />
+      {/* Depth gradient overlay */}
+      <ellipse cx="32" cy="35" rx="22" ry="20" fill="url(#bodyGrad)" />
+      {/* Specular highlight */}
+      <ellipse cx="23" cy="28" rx="7" ry="5" fill="white" opacity="0.22" />
+      <ellipse cx="21" cy="27" rx="3" ry="2" fill="white" opacity="0.15" />
+      {/* Segment lines */}
+      <path d="M22 18 Q28 38 26 54" stroke="#d63a1a" strokeWidth="0.7" opacity="0.3" fill="none" />
+      <path d="M42 18 Q36 38 38 54" stroke="#d63a1a" strokeWidth="0.7" opacity="0.3" fill="none" />
+      {/* Stem */}
+      <path d="M31 16 C31 16 30.5 19 31 20.5 C31.5 22 32.5 22 33 20.5 C33.5 19 33 16 33 16Z" fill="#4ade80" />
+      {/* Calyx leaves */}
+      <path d="M27 17 C23 10 17 11.5 20 16 C23 20.5 27 19 27 17Z" fill="#22c55e" />
+      <path d="M37 17 C41 10 47 11.5 44 16 C41 20.5 37 19 37 17Z" fill="#22c55e" />
+      <path d="M32 15 C30 8 32 5 34 8 C36 11 34 15 32 15Z" fill="#16a34a" />
+      {/* Leaf vein details */}
+      <path d="M23 14 Q25 16 27 17" stroke="#15803d" strokeWidth="0.5" opacity="0.5" fill="none" />
+      <path d="M41 14 Q39 16 37 17" stroke="#15803d" strokeWidth="0.5" opacity="0.5" fill="none" />
+      <defs>
+        <radialGradient id="bodyGrad" cx="0.35" cy="0.3" r="0.65">
+          <stop offset="0%" stopColor="#ff6b3d" stopOpacity="0.4" />
+          <stop offset="50%" stopColor="#ef4423" stopOpacity="0" />
+          <stop offset="100%" stopColor="#b91c0c" stopOpacity="0.3" />
+        </radialGradient>
+      </defs>
     </svg>
   )
 }
@@ -141,14 +163,34 @@ export function App() {
             marginBottom: spacing.sm,
             display: 'flex',
             alignItems: 'center',
-            gap: 12,
+            gap: 10,
             minHeight: 40,
           }}>
-            <TomatoLogo size={collapsed ? 28 : 32} />
+            <div style={{
+              width: collapsed ? 32 : 36,
+              height: collapsed ? 32 : 36,
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, rgba(249,115,22,0.12), rgba(239,68,68,0.08))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              transition: `all ${transition.normal}`,
+            }}>
+              <TomatoLogo size={collapsed ? 22 : 26} />
+            </div>
             {!collapsed && (
               <div>
-                <h1 style={{ fontSize: fontSize.lg, fontWeight: fontWeight.bold, letterSpacing: '-0.02em', lineHeight: 1.2 }}>Fanqie</h1>
-                <p style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.2 }}>Workbench</p>
+                <h1 style={{
+                  fontSize: fontSize.lg,
+                  fontWeight: fontWeight.bold,
+                  letterSpacing: '-0.03em',
+                  lineHeight: 1.2,
+                  background: 'linear-gradient(135deg, var(--text-primary), var(--accent))',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                }}>番茄写作台</h1>
+                <p style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.2, letterSpacing: '0.02em' }}>Fanqie Workbench</p>
               </div>
             )}
           </div>
