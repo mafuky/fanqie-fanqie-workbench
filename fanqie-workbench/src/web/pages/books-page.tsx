@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ChapterStage } from '../../domain/chapter.js'
+import { LiveLogPanel } from '../components/live-log-panel.js'
 import { PageHeader } from '../components/ui/page-header.js'
 import { Card } from '../components/ui/card.js'
 import { Badge } from '../components/ui/badge.js'
 import { Button } from '../components/ui/button.js'
+import { Input } from '../components/ui/input.js'
 import { EmptyState } from '../components/ui/empty-state.js'
 import { Spinner } from '../components/ui/spinner.js'
 import { useToast } from '../components/ui/toast.js'
@@ -42,6 +44,10 @@ export function BooksPage() {
   const [scanning, setScanning] = useState(false)
   const [expandedBookId, setExpandedBookId] = useState<string | null>(null)
   const [stageFilter, setStageFilter] = useState<ChapterStage | 'all'>('all')
+  const [processingChapterId, setProcessingChapterId] = useState<string | null>(null)
+  const [taskId, setTaskId] = useState<string | null>(null)
+  const [taskStatus, setTaskStatus] = useState<'running' | 'succeeded' | 'failed' | null>(null)
+  const [userHint, setUserHint] = useState('')
   const toast = useToast()
 
   const loadBooks = useCallback(async () => {
@@ -66,6 +72,18 @@ export function BooksPage() {
     }
   }, [toast])
 
+  const reloadExpandedBook = useCallback(async () => {
+    if (!expandedBookId) return
+    try {
+      const chRes = await fetch(`/api/books/${expandedBookId}`)
+      const chData = await chRes.json()
+      const chapters = (chData.chapters || []) as ChapterRow[]
+      setBooks((prev) => prev.map((b) =>
+        b.id === expandedBookId ? { ...b, chapters } : b
+      ))
+    } catch {}
+  }, [expandedBookId])
+
   useEffect(() => { loadBooks() }, [loadBooks])
 
   const handleScan = useCallback(async () => {
@@ -85,7 +103,45 @@ export function BooksPage() {
   const toggleBook = useCallback((bookId: string) => {
     setExpandedBookId((prev) => prev === bookId ? null : bookId)
     setStageFilter('all')
+    setTaskId(null)
+    setTaskStatus(null)
+    setProcessingChapterId(null)
   }, [])
+
+  const handleProcess = useCallback(async (chapterId: string) => {
+    setProcessingChapterId(chapterId)
+    setTaskId(null)
+    setTaskStatus('running')
+
+    try {
+      const res = await fetch(`/api/chapters/${chapterId}/process`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetStage: '可发布',
+          userHint: userHint.trim() || undefined,
+        }),
+      })
+      const data = await res.json()
+      setTaskId(data.taskId)
+    } catch {
+      toast.error('处理请求失败')
+      setProcessingChapterId(null)
+      setTaskStatus(null)
+    }
+  }, [userHint, toast])
+
+  const handleTaskDone = useCallback(async (status: string) => {
+    const success = status === 'succeeded'
+    setTaskStatus(success ? 'succeeded' : 'failed')
+    setProcessingChapterId(null)
+    if (success) {
+      toast.success('章节处理完成')
+    } else {
+      toast.error('章节处理失败')
+    }
+    await reloadExpandedBook()
+  }, [toast, reloadExpandedBook])
 
   const totalChapters = books.reduce((sum, b) => sum + b.chapters.length, 0)
   const publishedChapters = books.reduce((sum, b) => sum + b.chapters.filter((c) => c.stage === '已发布').length, 0)
@@ -162,6 +218,7 @@ export function BooksPage() {
 
             return (
               <Card key={book.id} padding={0}>
+                {/* Book header */}
                 <div
                   onClick={() => toggleBook(book.id)}
                   style={{
@@ -195,8 +252,19 @@ export function BooksPage() {
                   </div>
                 </div>
 
+                {/* Expanded content */}
                 {expanded && (
                   <div style={{ borderTop: '1px solid var(--border)' }}>
+                    {/* User hint input */}
+                    <div style={{ padding: `${spacing.md}px ${spacing.xl}px`, borderBottom: '1px solid var(--border)' }}>
+                      <Input
+                        value={userHint}
+                        onChange={(e) => setUserHint(e.currentTarget.value)}
+                        placeholder="写作方向（可选）：例如 这章要写主角发现关键线索，节奏加快"
+                      />
+                    </div>
+
+                    {/* Stage filter tabs */}
                     <div style={{
                       display: 'flex',
                       padding: `${spacing.md}px ${spacing.xl}px`,
@@ -219,6 +287,7 @@ export function BooksPage() {
                       ))}
                     </div>
 
+                    {/* Chapter rows */}
                     {filteredChapters.length === 0 ? (
                       <div style={{ padding: `${spacing['2xl']}px ${spacing.xl}px`, textAlign: 'center' }}>
                         <p style={{ color: 'var(--text-muted)', fontSize: fontSize.md }}>
@@ -226,27 +295,64 @@ export function BooksPage() {
                         </p>
                       </div>
                     ) : (
-                      filteredChapters.map((ch) => (
-                        <div
-                          key={ch.id}
-                          style={{
-                            padding: `${spacing.sm}px ${spacing.xl}px ${spacing.sm}px ${spacing['4xl'] + spacing.xs}px`,
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            borderBottom: '1px solid var(--border)',
-                            fontSize: fontSize.md,
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: spacing.md - 2 }}>
-                            <span style={{ color: 'var(--text-muted)', fontSize: fontSize.xs, width: 24 }}>
-                              {String(ch.chapter_number).padStart(2, '0')}
-                            </span>
-                            <span>{ch.title}</span>
+                      filteredChapters.map((ch) => {
+                        const isReady = ch.stage === '可发布' || ch.stage === '已发布'
+                        const isProcessing = processingChapterId === ch.id
+                        const isOtherProcessing = !!processingChapterId && !isProcessing
+
+                        return (
+                          <div
+                            key={ch.id}
+                            style={{
+                              padding: `${spacing.sm}px ${spacing.xl}px ${spacing.sm}px ${spacing['4xl'] + spacing.xs}px`,
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              borderBottom: '1px solid var(--border)',
+                              fontSize: fontSize.md,
+                              background: isProcessing ? 'var(--accent-subtle)' : 'transparent',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: spacing.md - 2 }}>
+                              <span style={{ color: 'var(--text-muted)', fontSize: fontSize.xs, width: 24 }}>
+                                {String(ch.chapter_number).padStart(2, '0')}
+                              </span>
+                              <span>{ch.title}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: spacing.sm }}>
+                              <Badge variant={stageBadgeVariant[ch.stage]}>{ch.stage}</Badge>
+                              {isReady ? (
+                                <span style={{ fontSize: fontSize.xs, color: 'var(--green)' }}>✓</span>
+                              ) : isProcessing ? (
+                                <span style={{ fontSize: fontSize.xs, color: 'var(--accent)' }}>处理中...</span>
+                              ) : isOtherProcessing ? (
+                                <span style={{ fontSize: fontSize.xs, color: 'var(--text-muted)' }}>等待</span>
+                              ) : (
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  onClick={() => handleProcess(ch.id)}
+                                >
+                                  处理
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                          <Badge variant={stageBadgeVariant[ch.stage]}>{ch.stage}</Badge>
-                        </div>
-                      ))
+                        )
+                      })
+                    )}
+
+                    {/* Pipeline log */}
+                    {taskId && (
+                      <div style={{ padding: `${spacing.lg}px ${spacing.xl}px`, borderTop: '1px solid var(--border)' }}>
+                        {taskStatus && taskStatus !== 'running' && (
+                          <div style={{ marginBottom: spacing.md, display: 'flex', alignItems: 'center', gap: spacing.sm }}>
+                            {taskStatus === 'succeeded' && <Badge variant="success">✓ 处理完成</Badge>}
+                            {taskStatus === 'failed' && <Badge variant="error">✕ 处理失败</Badge>}
+                          </div>
+                        )}
+                        <LiveLogPanel taskId={taskId} onDone={handleTaskDone} />
+                      </div>
                     )}
                   </div>
                 )}
