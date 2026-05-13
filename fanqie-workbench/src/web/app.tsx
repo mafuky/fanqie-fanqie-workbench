@@ -93,9 +93,14 @@ const lightVars: Record<string, string> = {
 const SIDEBAR_WIDTH = 230
 const SIDEBAR_COLLAPSED_WIDTH = 56
 
+function getTimeBasedTheme(): Theme {
+  const hour = new Date().getHours()
+  return (hour >= 6 && hour < 18) ? 'light' : 'dark'
+}
+
 export function App() {
   const [page, setPage] = useState<Page>('prompt')
-  const [theme, setTheme] = useState<Theme>('dark')
+  const [theme, setTheme] = useState<Theme>(getTimeBasedTheme)
   const [collapsed, setCollapsed] = useState(false)
 
   useEffect(() => {
