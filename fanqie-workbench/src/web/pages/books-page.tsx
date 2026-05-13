@@ -178,11 +178,12 @@ export function BooksPage() {
         }
       />
 
-      <div style={{ display: 'flex', gap: spacing.lg, marginBottom: spacing.xl }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.lg, marginBottom: spacing.xl }}>
         {stats.map((s) => (
           <div key={s.label} style={{
             padding: `${spacing.sm}px ${spacing.lg}px`,
             background: 'var(--bg-secondary)',
+            border: '1px solid var(--border)',
             borderRadius: radius.md,
             fontSize: fontSize.sm,
           }}>
@@ -303,6 +304,7 @@ export function BooksPage() {
                         return (
                           <div
                             key={ch.id}
+                            className="chapter-row"
                             style={{
                               padding: `${spacing.sm}px ${spacing.xl}px ${spacing.sm}px ${spacing['4xl'] + spacing.xs}px`,
                               display: 'flex',

@@ -174,7 +174,9 @@ export function PromptPage() {
             {status === 'succeeded' && <Badge variant="success">✓ 成功</Badge>}
             {status === 'failed' && <Badge variant="error">✕ 失败</Badge>}
           </div>
-          <span style={{ fontSize: fontSize.xs, color: 'var(--text-muted)' }}>⌘+Enter</span>
+          <span style={{ fontSize: fontSize.xs, color: 'var(--text-muted)' }}>
+            {typeof navigator !== 'undefined' && /Win/.test(navigator.platform) ? 'Ctrl' : '⌘'}+Enter
+          </span>
         </div>
       </Card>
 
@@ -218,6 +220,7 @@ export function PromptPage() {
                 return (
                   <div
                     key={task.id}
+                    className="history-row"
                     onClick={() => handleViewTask(task.id)}
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',

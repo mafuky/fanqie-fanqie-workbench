@@ -49,6 +49,30 @@
     @keyframes ui-toast-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
     @keyframes ui-fade-in { from { opacity: 0; } to { opacity: 1; } }
     @keyframes ui-scale-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+
+    /* Sidebar nav hover */
+    .nav-item { transition: background 0.12s ease, color 0.12s ease; }
+    .nav-item:hover { background: var(--bg-tertiary); }
+    .nav-item[data-active="true"] { background: var(--accent-subtle) !important; color: var(--accent); font-weight: 600; }
+    .nav-item[data-active="true"]:hover { background: var(--accent-subtle) !important; }
+
+    /* Chapter row hover */
+    .chapter-row { transition: background 0.12s ease; }
+    .chapter-row:hover { background: var(--bg-tertiary); }
+
+    /* History row hover */
+    .history-row { transition: background 0.12s ease; }
+    .history-row:hover { background: var(--bg-tertiary); }
+
+    /* Page content fade-in */
+    .page-content { animation: ui-fade-in 0.15s ease; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      :root {
+        --sidebar-collapsed: 1;
+      }
+    }
   </style>
 </head>
 <body>
