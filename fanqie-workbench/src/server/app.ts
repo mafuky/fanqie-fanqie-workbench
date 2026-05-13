@@ -1,8 +1,12 @@
 import Fastify from 'fastify'
+import { registerTaskRoutes } from './routes/tasks.js'
+import { registerBookRoutes } from './routes/books.js'
 
 export async function buildServer() {
   const app = Fastify()
   app.get('/health', async () => ({ ok: true }))
+  await registerTaskRoutes(app)
+  await registerBookRoutes(app)
   return app
 }
 
