@@ -22,4 +22,24 @@ CREATE TABLE IF NOT EXISTS chapters (
   stage TEXT NOT NULL DEFAULT '待写作',
   FOREIGN KEY (book_id) REFERENCES books(id)
 );
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  book_id TEXT,
+  chapter_id TEXT,
+  status TEXT NOT NULL DEFAULT 'queued',
+  exit_code INTEGER,
+  created_at TEXT NOT NULL,
+  finished_at TEXT,
+  FOREIGN KEY (book_id) REFERENCES books(id)
+);
+CREATE TABLE IF NOT EXISTS task_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL,
+  stream TEXT NOT NULL,
+  chunk TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (task_id) REFERENCES tasks(id)
+);
 `
