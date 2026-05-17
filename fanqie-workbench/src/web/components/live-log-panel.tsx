@@ -1,14 +1,47 @@
 import { useEffect, useRef, useState } from 'react'
 import { fontSize, radius, spacing } from '../styles/tokens.js'
 
-export function LiveLogPanel({ taskId, onDone }: { taskId: string; onDone?: (status: string) => void }) {
-  const [lines, setLines] = useState<Array<{ stream: string; text: string }>>([])
+type QuestionPayload = {
+  toolUseId: string
+  question: string
+  options: Array<{ label: string; description?: string }>
+}
+
+type LogChunk = {
+  id?: number
+  stream: string
+  text: string
+}
+
+export function LiveLogPanel({
+  taskId,
+  onDone,
+  onChunk,
+  streamBase = 'tasks',
+}: {
+  taskId: string
+  onDone?: (status: string) => void
+  onChunk?: (chunk: LogChunk) => void
+  streamBase?: 'tasks' | 'sessions'
+}) {
+  const [lines, setLines] = useState<LogChunk[]>([])
   const [elapsed, setElapsed] = useState(0)
+  const [question, setQuestion] = useState<QuestionPayload | null>(null)
+  const [customAnswer, setCustomAnswer] = useState('')
+  const [answering, setAnswering] = useState(false)
   const containerRef = useRef<HTMLPreElement>(null)
   const startRef = useRef(Date.now())
+  const seenMessageIdsRef = useRef<Set<number>>(new Set())
+  const onDoneRef = useRef(onDone)
+  const onChunkRef = useRef(onChunk)
+  onDoneRef.current = onDone
+  onChunkRef.current = onChunk
 
   useEffect(() => {
+    seenMessageIdsRef.current = new Set()
     setLines([])
+    setQuestion(null)
+    setCustomAnswer('')
     startRef.current = Date.now()
     setElapsed(0)
 
@@ -16,17 +49,28 @@ export function LiveLogPanel({ taskId, onDone }: { taskId: string; onDone?: (sta
       setElapsed(Math.floor((Date.now() - startRef.current) / 1000))
     }, 1000)
 
-    const eventSource = new EventSource(`/api/tasks/${taskId}/stream`)
+    const eventSource = new EventSource(`/api/${streamBase}/${taskId}/stream`)
 
     eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      setLines((prev) => [...prev, { stream: data.stream, text: data.chunk }])
+      const data = JSON.parse(event.data) as { id?: number; stream: string; chunk: string }
+      if (typeof data.id === 'number') {
+        if (seenMessageIdsRef.current.has(data.id)) return
+        seenMessageIdsRef.current.add(data.id)
+      }
+      const nextChunk = { id: data.id, stream: data.stream, text: data.chunk }
+      setLines((prev) => [...prev, nextChunk])
+      onChunkRef.current?.(nextChunk)
     }
+
+    eventSource.addEventListener('question', (event) => {
+      const data = JSON.parse((event as MessageEvent).data)
+      setQuestion(data)
+    })
 
     eventSource.addEventListener('done', (event) => {
       const data = JSON.parse((event as MessageEvent).data)
       clearInterval(timer)
-      onDone?.(data.status)
+      onDoneRef.current?.(data.status)
       eventSource.close()
     })
 
@@ -39,13 +83,32 @@ export function LiveLogPanel({ taskId, onDone }: { taskId: string; onDone?: (sta
       clearInterval(timer)
       eventSource.close()
     }
-  }, [taskId, onDone])
+  }, [taskId, streamBase])
 
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight
     }
   }, [lines])
+
+  const handleAnswer = async (answer: string) => {
+    const nextAnswer = answer.trim()
+    if (!nextAnswer) return
+
+    setAnswering(true)
+    try {
+      const res = await fetch(`/api/${streamBase}/${taskId}/answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answer: nextAnswer }),
+      })
+      if (!res.ok) return
+      setQuestion(null)
+      setCustomAnswer('')
+    } finally {
+      setAnswering(false)
+    }
+  }
 
   return (
     <div>
@@ -71,6 +134,87 @@ export function LiveLogPanel({ taskId, onDone }: { taskId: string; onDone?: (sta
           {elapsed}s
         </span>
       </div>
+
+      {question && (
+        <div style={{
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--accent)',
+          padding: spacing.lg,
+          borderRadius: radius.lg,
+          marginBottom: spacing.md,
+        }}>
+          <div style={{ fontSize: fontSize.md, fontWeight: 600, marginBottom: spacing.sm }}>
+            {question.question}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
+            {question.options.map((option) => (
+              <button
+                key={option.label}
+                onClick={() => handleAnswer(option.label)}
+                disabled={answering}
+                style={{
+                  textAlign: 'left',
+                  padding: `${spacing.sm}px ${spacing.md}px`,
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: radius.md,
+                  cursor: answering ? 'not-allowed' : 'pointer',
+                  opacity: answering ? 0.6 : 1,
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>{option.label}</div>
+                {option.description && (
+                  <div style={{ fontSize: fontSize.sm, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {option.description}
+                  </div>
+                )}
+              </button>
+            ))}
+            <div style={{ display: 'flex', gap: spacing.sm, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                value={customAnswer}
+                onChange={(event) => setCustomAnswer(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !answering) {
+                    event.preventDefault()
+                    void handleAnswer(customAnswer)
+                  }
+                }}
+                placeholder="输入你的回答…"
+                disabled={answering}
+                style={{
+                  flex: 1,
+                  minWidth: 220,
+                  padding: `${spacing.sm}px ${spacing.md}px`,
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: radius.md,
+                  fontFamily: 'inherit',
+                  opacity: answering ? 0.6 : 1,
+                }}
+              />
+              <button
+                onClick={() => void handleAnswer(customAnswer)}
+                disabled={answering || !customAnswer.trim()}
+                style={{
+                  padding: `${spacing.sm}px ${spacing.md}px`,
+                  background: 'var(--accent)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: radius.md,
+                  cursor: answering || !customAnswer.trim() ? 'not-allowed' : 'pointer',
+                  opacity: answering || !customAnswer.trim() ? 0.6 : 1,
+                }}
+              >
+                提交回答
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <pre
         ref={containerRef}
         style={{

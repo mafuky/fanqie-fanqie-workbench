@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { fontSize, fontWeight, radius, spacing } from '../../styles/tokens.js'
 
@@ -38,19 +38,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
-  const api: ToastApi = {
+  const api = useMemo<ToastApi>(() => ({
     success: (msg) => add('success', msg),
     error: (msg) => add('error', msg),
     info: (msg) => add('info', msg),
-  }
+  }), [add])
 
   return (
     <ToastContext.Provider value={api}>
       {children}
       <div style={{
         position: 'fixed',
-        top: spacing.lg,
         right: spacing.lg,
+        bottom: spacing.lg,
         zIndex: 9999,
         display: 'flex',
         flexDirection: 'column',
