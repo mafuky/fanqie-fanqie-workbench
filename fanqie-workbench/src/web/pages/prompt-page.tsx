@@ -8,13 +8,14 @@ import { Badge } from '../components/ui/badge.js'
 import { useToast } from '../components/ui/toast.js'
 import { spacing, fontSize, fontWeight, transition } from '../styles/tokens.js'
 
-type TaskRecord = {
+type SessionRecord = {
   id: string
-  type: string
-  prompt: string
+  kind: string
   status: string
-  created_at: string
-  finished_at: string | null
+  currentSkill: string | null
+  pendingQuestionJson: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 const SKILLS = [
@@ -45,35 +46,50 @@ const statusMap: Record<string, { variant: 'success' | 'error' | 'warning' | 'ne
 export function PromptPage() {
   const [skill, setSkill] = useState('custom')
   const [prompt, setPrompt] = useState('')
-  const [taskId, setTaskId] = useState<string | null>(null)
+  const [sessionId, setSessionId] = useState<string | null>(null)
   const [status, setStatus] = useState<'idle' | 'running' | 'succeeded' | 'failed'>('idle')
-  const [history, setHistory] = useState<TaskRecord[]>([])
+  const [history, setHistory] = useState<SessionRecord[]>([])
   const [historyOpen, setHistoryOpen] = useState(false)
   const toast = useToast()
 
   const loadHistory = useCallback(async () => {
     try {
-      const res = await fetch('/api/tasks')
+      const res = await fetch('/api/sessions?kind=prompt')
       const data = await res.json()
-      setHistory(data.tasks || [])
+      setHistory((data.sessions || []).filter((session: SessionRecord) => session.currentSkill !== 'book-entry'))
     } catch {}
   }, [])
 
   useEffect(() => { loadHistory() }, [loadHistory])
 
+  useEffect(() => {
+    let mounted = true
+    const saved = localStorage.getItem('fanqie:prompt:active-session')
+    if (!saved) return () => { mounted = false }
+    fetch(`/api/sessions/${saved}`).then((res) => res.json()).then((data) => {
+      if (!mounted) return
+      if (data.session && (data.session.status === 'running' || data.session.status === 'waiting-answer')) {
+        setSessionId(data.session.id)
+        setStatus('running')
+      }
+    }).catch(() => {})
+    return () => { mounted = false }
+  }, [])
+
   const handleSubmit = useCallback(async () => {
     if (!prompt.trim() || status === 'running') return
     setStatus('running')
-    setTaskId(null)
+    setSessionId(null)
     const fullPrompt = buildPrompt(skill, prompt.trim())
     try {
-      const res = await fetch('/api/tasks', {
+      const res = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: skill, prompt: fullPrompt }),
+        body: JSON.stringify({ kind: 'prompt', currentSkill: skill, prompt: fullPrompt }),
       })
       const data = await res.json()
-      setTaskId(data.taskId)
+      setSessionId(data.session.id)
+      localStorage.setItem('fanqie:prompt:active-session', data.session.id)
     } catch {
       setStatus('failed')
       toast.error('任务提交失败')
@@ -83,20 +99,21 @@ export function PromptPage() {
   const handleDone = useCallback((finalStatus: string) => {
     const success = finalStatus === 'succeeded'
     setStatus(success ? 'succeeded' : 'failed')
+    localStorage.removeItem('fanqie:prompt:active-session')
     if (success) toast.success('任务执行成功')
     else toast.error('任务执行失败')
     loadHistory()
   }, [loadHistory, toast])
 
   const handleViewTask = useCallback((id: string) => {
-    setTaskId(id)
+    setSessionId(id)
     setStatus('idle')
   }, [])
 
   const handleClearHistory = useCallback(async () => {
-    await fetch('/api/tasks', { method: 'DELETE' })
     setHistory([])
-    setTaskId(null)
+    setSessionId(null)
+    localStorage.removeItem('fanqie:prompt:active-session')
     toast.info('历史已清除')
   }, [toast])
 
@@ -109,8 +126,8 @@ export function PromptPage() {
   return (
     <div>
       <PageHeader
-        title="执行任务"
-        description="选择 Skill 并输入指令，驱动 Claude 执行多轮写作任务"
+        title="自由会话"
+        description="用于临时试验、开书构思或排查会话问题；主工作流请优先在书籍页推进。"
       />
 
       {/* Skill selector */}
@@ -120,7 +137,7 @@ export function PromptPage() {
           color: 'var(--text-secondary)', textTransform: 'uppercase',
           letterSpacing: '0.05em', marginBottom: spacing.md - 2,
         }}>
-          选择 Skill
+          调试 / 高级使用
         </label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.sm }}>
           {SKILLS.map((s) => (
@@ -142,6 +159,9 @@ export function PromptPage() {
             </button>
           ))}
         </div>
+        <p style={{ fontSize: fontSize.xs, color: 'var(--text-muted)', marginTop: spacing.sm }}>
+          这里保留给临时调试和自由协作，不是整本书的主入口。
+        </p>
         {selectedSkill && selectedSkill.id !== 'custom' && (
           <p style={{ fontSize: fontSize.sm, color: 'var(--text-muted)', marginTop: spacing.sm }}>
             {selectedSkill.desc}
@@ -181,9 +201,9 @@ export function PromptPage() {
       </Card>
 
       {/* Live log */}
-      {taskId && (
+      {sessionId && (
         <div style={{ marginBottom: spacing['2xl'] }}>
-          <LiveLogPanel taskId={taskId} onDone={handleDone} />
+          <LiveLogPanel taskId={sessionId} streamBase="sessions" onDone={handleDone} />
         </div>
       )}
 
@@ -215,18 +235,18 @@ export function PromptPage() {
           </div>
           {historyOpen && (
             <Card padding={0} style={{ overflow: 'hidden' }}>
-              {history.slice(0, 20).map((task) => {
-                const sm = statusMap[task.status] || statusMap.queued
+              {history.slice(0, 20).map((session) => {
+                const sm = statusMap[session.status] || statusMap.queued
                 return (
                   <div
-                    key={task.id}
+                    key={session.id}
                     className="history-row"
-                    onClick={() => handleViewTask(task.id)}
+                    onClick={() => handleViewTask(session.id)}
                     style={{
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                       padding: `${spacing.md - 2}px ${spacing.lg}px`,
                       borderBottom: '1px solid var(--border)', cursor: 'pointer',
-                      background: taskId === task.id ? 'var(--accent-subtle)' : 'transparent',
+                      background: sessionId === session.id ? 'var(--accent-subtle)' : 'transparent',
                     }}
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -234,10 +254,10 @@ export function PromptPage() {
                         fontSize: fontSize.md, color: 'var(--text-primary)',
                         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 400,
                       }}>
-                        {task.prompt}
+                        {(session.currentSkill && session.currentSkill !== 'custom') ? `Skill: ${session.currentSkill}` : '自由对话会话'}
                       </div>
                       <div style={{ fontSize: fontSize.xs, color: 'var(--text-muted)', marginTop: 2 }}>
-                        {new Date(task.created_at).toLocaleString('zh-CN')}
+                        {new Date(session.createdAt).toLocaleString('zh-CN')}
                       </div>
                     </div>
                     <Badge variant={sm.variant}>{sm.label}</Badge>

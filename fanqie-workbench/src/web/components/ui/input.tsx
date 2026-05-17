@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import { useId, type InputHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { fontSize, fontWeight, radius, spacing, transition } from '../../styles/tokens.js'
 
 type InputProps = {
@@ -45,13 +45,16 @@ function handleBlur(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>,
   e.currentTarget.style.borderColor = hasError ? 'var(--red)' : 'var(--border)'
 }
 
-export function Input({ label, error, ...rest }: InputProps) {
+export function Input({ label, error, id, ...rest }: InputProps) {
+  const generatedId = useId()
+  const inputId = id ?? generatedId
   const hasError = !!error
   return (
     <div>
-      {label && <label style={labelStyle}>{label}</label>}
+      {label && <label htmlFor={inputId} style={labelStyle}>{label}</label>}
       <input
         {...rest}
+        id={inputId}
         style={inputBaseStyle(hasError)}
         onFocus={handleFocus}
         onBlur={(e) => handleBlur(e, hasError)}
@@ -63,13 +66,16 @@ export function Input({ label, error, ...rest }: InputProps) {
   )
 }
 
-export function Textarea({ label, error, ...rest }: TextareaProps) {
+export function Textarea({ label, error, id, ...rest }: TextareaProps) {
+  const generatedId = useId()
+  const textareaId = id ?? generatedId
   const hasError = !!error
   return (
     <div>
-      {label && <label style={labelStyle}>{label}</label>}
+      {label && <label htmlFor={textareaId} style={labelStyle}>{label}</label>}
       <textarea
         {...rest}
+        id={textareaId}
         style={{ ...inputBaseStyle(hasError), resize: 'vertical' as const }}
         onFocus={handleFocus}
         onBlur={(e) => handleBlur(e, hasError)}

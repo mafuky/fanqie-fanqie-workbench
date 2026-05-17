@@ -4,9 +4,10 @@ export async function parseChapterFile(fileUrl: URL) {
   const content = await readFile(fileUrl, 'utf8')
   const lines = content.split('\n')
   const header = lines.find(line => line.startsWith('#'))
-  if (!header) throw new Error('No header found')
-  const match = header.match(/第(\d+)章\s+(.+)$/)
-  if (!match) throw new Error(`Invalid chapter header: ${header}`)
+  if (!header) return null
+
+  const match = header.match(/第(\d+)章[：:_\s]\s*(.+)$/)
+  if (!match) return null
 
   const headerIndex = lines.indexOf(header)
   const body = lines.slice(headerIndex + 1).join('\n').trim()

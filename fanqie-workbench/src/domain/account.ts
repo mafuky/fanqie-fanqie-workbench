@@ -6,5 +6,6 @@ export type AccountRecord = {
   profilePath: string
   status: AccountStatus
   lastCheckedAt: string | null
+  cookiesJson: string | null
   createdAt: string
 }

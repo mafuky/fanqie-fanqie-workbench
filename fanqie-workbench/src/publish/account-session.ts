@@ -5,7 +5,7 @@ export async function openLoginBrowser(profilePath: string, targetUrl: string) {
     channel: 'chrome',
   })
   const page = context.pages()[0] ?? await context.newPage()
-  await page.goto(targetUrl)
+  await page.goto(targetUrl, { waitUntil: 'domcontentloaded' })
   return { context, page }
 }
 

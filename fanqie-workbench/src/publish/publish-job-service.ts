@@ -1,24 +1,23 @@
 export function planPublishJob(input: {
-  bookId: string
-  accountId: string
+  bookPublicationId: string
+  platformAccountId: string
   mode: 'dry-run' | 'assisted' | 'auto'
   chapters: Array<{ id: string; stage: string; chapterNumber: number }>
 }) {
-  if (!input.accountId) {
-    throw new Error('Book must be bound to an account before publishing')
+  if (!input.platformAccountId) {
+    throw new Error('Book publication must be bound to a platform account before publishing')
   }
 
-  const chapterIds = input.chapters
+  const chapters = input.chapters
     .filter((chapter) => chapter.stage === '可发布')
     .sort((a, b) => a.chapterNumber - b.chapterNumber)
-    .map((chapter) => chapter.id)
 
   return {
-    id: `${input.bookId}:${input.mode}`,
-    bookId: input.bookId,
-    accountId: input.accountId,
+    id: `${input.bookPublicationId}:${input.mode}`,
+    bookPublicationId: input.bookPublicationId,
+    platformAccountId: input.platformAccountId,
     mode: input.mode,
-    chapterIds,
-    status: 'queued' as const
+    chapters,
+    status: 'queued' as const,
   }
 }
