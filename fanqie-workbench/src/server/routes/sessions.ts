@@ -15,6 +15,7 @@ import {
   updateSessionStatus,
   type SessionKind,
 } from '../../db/repositories/sessions-repo.js'
+import { runBookEntryTerminalSession } from '../../claude/book-entry-terminal-runner.js'
 import { buildChapterCommand, type ChapterCommandAction } from '../../claude/chapter-command-builder.js'
 import { ClaudeSession, type ClaudeEvent } from '../../claude/claude-executor.js'
 import { getOrCreateEmitter, submitAnswer } from '../../claude/stream-capture.js'
@@ -31,6 +32,10 @@ function stripMarkdownEmphasis(value: string) {
   return value.replace(/^[\s#>*-]+/, '').replace(/^主推书名[:：]\s*/, '').replace(/^推荐主书名[:：]\s*/, '').replace(/^书名[:：]\s*/, '').replace(/[*`《》]/g, '').trim()
 }
 
+function isGeneratedPlaceholder(value: string) {
+  return !value || /[<>]/.test(value) || /最终书名|章节名|200-400字简介|分卷或主线大纲/.test(value)
+}
+
 function parseGeneratedBook(stdout: string) {
   const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
   const titleLine = lines.find((line) => /^#{0,6}\s*(主推书名|推荐主书名|书名)[:：]/.test(line))
@@ -42,15 +47,22 @@ function parseGeneratedBook(stdout: string) {
       chapterNumber: Number(match[1]),
       title: stripMarkdownEmphasis(match[2]).replace(/[，。；、].*$/, '').trim(),
     }))
-    .filter((chapter) => chapter.chapterNumber > 0 && chapter.title.length > 0)
+    .filter((chapter) => chapter.chapterNumber > 0 && !isGeneratedPlaceholder(chapter.title))
     .filter((chapter, index, chapters) => chapters.findIndex((item) => item.chapterNumber === chapter.chapterNumber) === index)
+  const isComplete = !isGeneratedPlaceholder(title)
+    && !isGeneratedPlaceholder(summary)
+    && !isGeneratedPlaceholder(outline)
+    && /简介[:：]/.test(stdout)
+    && /大纲[:：]/.test(stdout)
+    && /章节目录[:：]/.test(stdout)
+    && chapterTitles.length > 0
 
   return {
     title,
     summary,
     outline,
     chapterTitles,
-    isComplete: Boolean(title) && /简介[:：]/.test(stdout) && /大纲[:：]/.test(stdout) && /章节目录[:：]/.test(stdout) && chapterTitles.length > 0,
+    isComplete,
   }
 }
 
@@ -123,20 +135,8 @@ async function materializeGeneratedBook(stdout: string, dbPath: string) {
   return { bookId, title: generated.title, rootPath }
 }
 
-function buildBookEntryPrompt(idea: string) {
-  return `你正在书籍管理页面帮助用户开一本新书。\n\n重要限制：不要调用任何工具、Skill 或斜杠命令；只用普通文本回复用户。\n\n用户开书想法：${idea}\n\n你可以先和用户多轮沟通，确认题材、主角、核心卖点、情绪基调、目标读者等关键信息；如果信息已经足够，请直接输出可落盘的开书资料。\n\n当你决定创建书籍时，最后必须严格按下面格式输出，字段名不要改，不要再给多个候选：\n书名：<最终书名，只输出一个>\n简介：<200-400字简介>\n大纲：<分卷或主线大纲>\n章节目录：\n第1章 <章节名>\n第2章 <章节名>\n第3章 <章节名>\n第4章 <章节名>\n第5章 <章节名>`
-}
-
-function buildBookEntryContinuePrompt(history: string) {
-  return `${history}\n\n重要限制：不要调用任何工具、Skill 或斜杠命令；只用普通文本回复用户。\n\n请继续开书沟通。如果信息仍不足，可以继续问用户；如果信息足够，请严格按下面格式输出最终开书资料，字段名不要改：\n书名：<最终书名，只输出一个>\n简介：<200-400字简介>\n大纲：<分卷或主线大纲>\n章节目录：\n第1章 <章节名>\n第2章 <章节名>\n第3章 <章节名>\n第4章 <章节名>\n第5章 <章节名>`
-}
-
-function buildSessionTranscript(messages: ReturnType<typeof getSessionMessages>) {
-  return messages.map((message) => {
-    if (message.role === 'user') return `用户：${message.content}`
-    if (message.stream === 'stderr') return `错误：${message.content}`
-    return `Claude：${message.content}`
-  }).join('\n')
+function buildBookEntryCommand(idea: string) {
+  return `/story-long-write 帮我开书：${idea}\n请使用 oh-story-claudecode 的长篇写作流程，在当前工作区 novels/ 下创建标准长篇项目结构；需要我补充信息时直接提问。`
 }
 
 function appendAndEmitSessionMessage(
@@ -147,10 +147,6 @@ function appendAndEmitSessionMessage(
 ) {
   const id = appendSessionMessage(db, sessionId, input)
   emitter.emit('log', { id, stream: input.stream ?? 'stdout', chunk: input.content })
-}
-
-function getBookEntryQuestion(stdout: string) {
-  return stdout.trim() || '请继续补充这本书的方向。'
 }
 
 function runPromptSession(sessionId: string, prompt: string, currentSkill: string | null | undefined) {
@@ -168,25 +164,6 @@ function runPromptSession(sessionId: string, prompt: string, currentSkill: strin
     if (exitCode !== 0) {
       updateSessionStatus(runDb, sessionId, 'failed', currentSkill ?? null)
       emitter.emit('done', { status: 'failed' })
-      runDb.close()
-      return
-    }
-
-    if ((currentSkill ?? null) === 'book-entry') {
-      if (parseGeneratedBook(stdout).isComplete) {
-        const materialized = await materializeGeneratedBook(stdout, getDatabasePath())
-        updateSessionMetadata(runDb, sessionId, {
-          contextSnapshotJson: JSON.stringify({ createdBookId: materialized.bookId, title: materialized.title, rootPath: materialized.rootPath }),
-        })
-        updateSessionStatus(runDb, sessionId, 'succeeded', currentSkill ?? null)
-        emitter.emit('done', { status: 'succeeded' })
-        runDb.close()
-        return
-      }
-
-      updateSessionPendingQuestion(runDb, sessionId, { question: getBookEntryQuestion(stdout), options: [] })
-      updateSessionStatus(runDb, sessionId, 'waiting-answer', currentSkill ?? null)
-      emitter.emit('question', { toolUseId: 'book-entry', question: getBookEntryQuestion(stdout), options: [] })
       runDb.close()
       return
     }
@@ -213,7 +190,7 @@ function runPromptSession(sessionId: string, prompt: string, currentSkill: strin
         case 'question': {
           if (finished) break
           finished = true
-          const question = event.question || getBookEntryQuestion(stdout)
+          const question = event.question || stdout.trim() || '请继续补充这本书的方向。'
           updateSessionStatus(runDb, sessionId, 'waiting-answer')
           updateSessionPendingQuestion(runDb, sessionId, { question, options: event.options })
           emitter.emit('question', { toolUseId: event.toolUseId, question, options: event.options })
@@ -262,7 +239,7 @@ export async function registerSessionRoutes(app: FastifyInstance) {
     }
 
     const sessionPrompt = (currentSkill ?? null) === 'book-entry' && typeof idea === 'string'
-      ? buildBookEntryPrompt(idea.trim())
+      ? buildBookEntryCommand(idea.trim())
       : prompt
 
     const db = openDatabase(getDatabasePath())
@@ -272,7 +249,17 @@ export async function registerSessionRoutes(app: FastifyInstance) {
     db.close()
 
     if (kind === 'prompt' && sessionPrompt && !existingBookMasterSession) {
-      runPromptSession(session.id, sessionPrompt, currentSkill)
+      if ((currentSkill ?? null) === 'book-entry') {
+        void runBookEntryTerminalSession({
+          databasePath: getDatabasePath(),
+          sessionId: session.id,
+          prompt: sessionPrompt,
+          isComplete: (stdout) => parseGeneratedBook(stdout).isComplete,
+          materialize: materializeGeneratedBook,
+        })
+      } else {
+        runPromptSession(session.id, sessionPrompt, currentSkill)
+      }
     }
 
     if (kind === 'chapter' && chapterId) {
@@ -466,10 +453,14 @@ export async function registerSessionRoutes(app: FastifyInstance) {
       appendSessionMessage(db, sessionId, { role: 'user', stream: 'question', content: answer })
       updateSessionPendingQuestion(db, sessionId, null)
       updateSessionStatus(db, sessionId, 'running', session.currentSkill)
-      const messages = getSessionMessages(db, sessionId)
-      const prompt = buildBookEntryContinuePrompt(buildSessionTranscript(messages))
       db.close()
-      runPromptSession(sessionId, prompt, session.currentSkill)
+      void runBookEntryTerminalSession({
+        databasePath: getDatabasePath(),
+        sessionId,
+        prompt: answer,
+        isComplete: (stdout) => parseGeneratedBook(stdout).isComplete,
+        materialize: materializeGeneratedBook,
+      })
       return { answered: true }
     }
 

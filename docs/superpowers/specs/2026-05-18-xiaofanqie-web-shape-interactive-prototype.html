@@ -1,0 +1,977 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>小番茄 Web 交互原型</title>
+  <style>
+    :root {
+      --bg: #f8efe4;
+      --surface: #fffaf3;
+      --surface-2: #f2e4d2;
+      --surface-3: #ead2ba;
+      --text: #33241a;
+      --muted: #8a705c;
+      --line: #e2c9ae;
+      --accent: #e85b2a;
+      --accent-2: #f59b45;
+      --green: #638747;
+      --red: #b84b3b;
+      --dark: #211710;
+      --dark-2: #2d2118;
+      --terminal: #1b110d;
+      --shadow: 0 18px 60px rgba(113, 70, 34, 0.12);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 8% 0%, rgba(249, 155, 69, 0.22), transparent 30%),
+        linear-gradient(135deg, #fff8ee 0%, var(--bg) 48%, #f1dcc7 100%);
+      color: var(--text);
+    }
+
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 236px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: rgba(255, 250, 243, 0.86);
+      backdrop-filter: blur(18px);
+      padding: 22px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      min-height: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 8px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      color: white;
+      background: linear-gradient(135deg, #f97316, #dc2626);
+      font-weight: 900;
+      box-shadow: 0 10px 24px rgba(233, 91, 42, 0.25);
+    }
+
+    .brand strong { display: block; font-size: 17px; letter-spacing: -0.03em; }
+    .brand span { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    .nav { display: grid; gap: 6px; }
+    .nav button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      padding: 11px 12px;
+      border-radius: 12px;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .nav button:hover { background: rgba(233, 91, 42, 0.06); }
+    .nav button.active {
+      color: var(--accent);
+      background: rgba(233, 91, 42, 0.11);
+      font-weight: 800;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 99px; background: currentColor; opacity: .55; }
+
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(242, 227, 209, 0.68);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .main {
+      height: 100vh;
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 16px;
+      padding: 22px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .crumbs { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+    h1 { margin: 0; font-size: 26px; letter-spacing: -0.05em; }
+    .subtitle { margin-top: 7px; color: var(--muted); font-size: 13px; }
+
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .btn {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--text);
+      padding: 9px 13px;
+      border-radius: 12px;
+      font-weight: 800;
+      box-shadow: 0 8px 20px rgba(115, 72, 38, 0.05);
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn.primary { border-color: transparent; color: white; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+    .btn.ghost { background: transparent; box-shadow: none; }
+    .btn.danger { color: var(--red); }
+    .btn.small { padding: 6px 10px; border-radius: 10px; font-size: 12px; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    .layout {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 292px minmax(0, 1fr) 392px;
+      gap: 14px;
+    }
+
+    .panel {
+      background: rgba(255, 250, 243, 0.90);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .panel-head {
+      padding: 15px 16px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: rgba(255, 247, 236, .62);
+    }
+    .panel-head h2 { margin: 0; font-size: 16px; letter-spacing: -0.03em; }
+    .panel-head span { color: var(--muted); font-size: 12px; }
+
+    .scroll { overflow: auto; min-height: 0; }
+
+    .book-list { padding: 12px; display: grid; gap: 10px; }
+    .book-card {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #fffdf8, #f8eadb);
+      border-radius: 18px;
+      padding: 14px;
+      text-align: left;
+      color: inherit;
+      width: 100%;
+    }
+    .book-card.active { outline: 2px solid rgba(233, 91, 42, .25); border-color: #e6b98d; }
+    .book-title { font-weight: 900; margin-bottom: 5px; }
+    .meta { color: var(--muted); font-size: 12px; line-height: 1.65; }
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+      border-radius: 99px;
+      background: var(--surface-2);
+      color: #7a5e48;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .pill.green { background: #e7efdc; color: var(--green); }
+    .pill.red { background: #f4ddd7; color: var(--red); }
+    .pill.orange { background: #f8dfc4; color: #a35c22; }
+
+    .chapter-list { padding: 12px; display: grid; gap: 8px; }
+    .chapter {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.32);
+      border-radius: 16px;
+      padding: 11px;
+      text-align: left;
+      color: inherit;
+    }
+    .chapter.active { background: #fff6eb; border-color: #e4b78b; outline: 2px solid rgba(233, 91, 42, .18); }
+    .chapter strong { display: block; font-size: 13px; margin-bottom: 4px; }
+    .chapter span { display: block; color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+    .center {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-width: 0;
+      min-height: 0;
+      gap: 14px;
+    }
+
+    .book-status {
+      padding: 15px 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: center;
+    }
+    .book-status h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: -0.04em; }
+    .book-status p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .tabs { display: flex; gap: 8px; padding: 0 16px 14px; overflow-x: auto; }
+    .tab {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 900;
+      padding: 8px 11px;
+      border-radius: 12px;
+      white-space: nowrap;
+    }
+    .tab.active { background: rgba(233, 91, 42, .10); color: var(--accent); }
+
+    .editor-panel { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+    .editor-toolbar {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: rgba(255, 247, 236, .65);
+    }
+    .editor-toolbar .title { min-width: 0; }
+    .editor-toolbar strong { display: block; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .editor-toolbar span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+
+    .editor-wrap { padding: 0; background: #fffdfa; }
+    textarea.editor {
+      width: 100%;
+      height: 100%;
+      resize: none;
+      border: 0;
+      outline: none;
+      padding: 24px 28px 40px;
+      background:
+        linear-gradient(90deg, rgba(226,201,174,.22) 1px, transparent 1px) 0 0 / 100% 34px,
+        #fffdfa;
+      color: #2f2219;
+      font-size: 17px;
+      line-height: 2;
+      font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+    }
+
+    .editor-footer {
+      padding: 10px 14px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      background: rgba(255, 247, 236, .72);
+    }
+
+    .dashboard, .simple-page { padding: 16px; overflow: auto; min-height: 0; display: grid; gap: 14px; }
+    .next-action {
+      border-radius: 20px;
+      padding: 18px;
+      background:
+        radial-gradient(circle at 90% 0%, rgba(233, 91, 42, .18), transparent 30%),
+        linear-gradient(135deg, #fffaf4, #f4e1cb);
+      border: 1px solid #e6c9aa;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+    }
+    .next-action .label { color: var(--accent); font-size: 12px; font-weight: 900; margin-bottom: 6px; }
+    .next-action strong { font-size: 20px; letter-spacing: -0.04em; }
+    .next-action p { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
+    .metric { padding: 13px; border-radius: 16px; border: 1px solid var(--line); background: rgba(255,255,255,.36); }
+    .metric span { color: var(--muted); font-size: 12px; }
+    .metric strong { display: block; font-size: 20px; margin-top: 5px; }
+
+    .mini-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.34);
+      border-radius: 16px;
+      padding: 12px;
+    }
+    .mini-row span { color: var(--muted); font-size: 12px; }
+
+    .runner {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      background: var(--dark);
+      color: #fff1df;
+    }
+    .runner-head {
+      padding: 16px;
+      border-bottom: 1px solid rgba(255,255,255,.14);
+      background: var(--dark-2);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .runner-head h2 { margin: 0 0 5px; font-size: 18px; }
+    .runner-head span { color: #c8ad95; font-size: 12px; }
+    .runner-status { text-align: right; }
+
+    .terminal {
+      padding: 16px;
+      overflow: auto;
+      background: var(--terminal);
+      font: 12.5px/1.75 "SFMono-Regular", Consolas, monospace;
+      white-space: pre-wrap;
+    }
+    .log-muted { color: #a98f78; }
+    .log-input { color: #ffd8a8; }
+    .log-ok { color: #bfe0a2; }
+    .question-box {
+      margin: 12px 0;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(249, 155, 69, .13);
+      border: 1px solid rgba(249, 155, 69, .44);
+      color: #ffe2c0;
+      font-family: inherit;
+    }
+    .question-options { display: grid; gap: 8px; margin-top: 10px; }
+    .question-options button {
+      text-align: left;
+      border: 1px solid rgba(249, 155, 69, .35);
+      background: rgba(255,255,255,.06);
+      color: #ffe9d0;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-weight: 800;
+    }
+
+    .runner-actions {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+      background: var(--dark-2);
+      border-top: 1px solid rgba(255,255,255,.10);
+    }
+    .runner-actions .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .runner-actions .btn { background: #3b2a20; color: #f7ddc4; border-color: #584033; box-shadow: none; }
+    .runner-actions input {
+      min-width: 0;
+      flex: 1;
+      border: 1px solid #584033;
+      border-radius: 12px;
+      background: #261a14;
+      color: #ffe9d0;
+      padding: 9px 10px;
+      outline: none;
+    }
+
+    .toast {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      display: grid;
+      gap: 8px;
+      z-index: 20;
+    }
+    .toast-item {
+      background: #2d2118;
+      color: #fff1df;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 14px;
+      padding: 11px 14px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.18);
+      font-size: 13px;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(35, 21, 12, .32);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 30;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      width: min(560px, calc(100vw - 36px));
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: 0 24px 80px rgba(49, 26, 12, .25);
+      overflow: hidden;
+    }
+    .modal header, .modal footer { padding: 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; }
+    .modal footer { border-bottom: 0; border-top: 1px solid var(--line); justify-content: flex-end; }
+    .modal h3 { margin: 0; }
+    .modal main { padding: 16px; }
+    .modal textarea { width: 100%; min-height: 120px; border: 1px solid var(--line); border-radius: 14px; padding: 12px; resize: vertical; outline: none; }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 1280px) {
+      body { overflow: auto; height: auto; }
+      .app { min-height: 100vh; height: auto; grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .main { height: auto; min-height: 100vh; }
+      .layout { grid-template-columns: 1fr; }
+      .panel { min-height: 360px; }
+      .runner { min-height: 520px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">番</div>
+        <div>
+          <strong>小番茄写作</strong>
+          <span>AI 网文生产工作台</span>
+        </div>
+      </div>
+      <nav class="nav" id="globalNav">
+        <button class="active" data-page="library"><i class="dot"></i>书库</button>
+        <button data-page="tasks"><i class="dot"></i>当前任务</button>
+        <button data-page="market"><i class="dot"></i>市场 / 对标</button>
+        <button data-page="resources"><i class="dot"></i>资料库</button>
+        <button data-page="publishing"><i class="dot"></i>账号发布</button>
+        <button data-page="settings"><i class="dot"></i>设置</button>
+      </nav>
+      <div class="sidebar-footer">
+        交互原型：所有数据存在浏览器内存。<br />重点验证“生成 → 编辑 → 工具修改 → Claude 交互”。
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="crumbs" id="crumbs">书库 / 雾港疑局 / 写作</div>
+          <h1 id="pageTitle">书库 + 单书写作工作台</h1>
+          <div class="subtitle" id="pageSubtitle">左侧章节，中间编辑器，右侧真实 Claude Code 交互面板的产品原型。</div>
+        </div>
+        <div class="actions">
+          <button class="btn" id="importBookBtn">导入小说</button>
+          <button class="btn" id="scanBtn">扫描 novels/</button>
+          <button class="btn primary" id="newBookBtn">新建一本书</button>
+        </div>
+      </header>
+
+      <section class="layout" id="appLayout">
+        <aside class="panel" id="leftPanel">
+          <div class="panel-head">
+            <div><h2>书库</h2><span>选择书与章节</span></div>
+          </div>
+          <div class="scroll">
+            <div class="book-list" id="bookList"></div>
+            <div class="panel-head" style="border-top:1px solid var(--line)">
+              <div><h2>章节</h2><span id="chapterHint">点击章节载入编辑器</span></div>
+            </div>
+            <div class="chapter-list" id="chapterList"></div>
+          </div>
+        </aside>
+
+        <section class="center">
+          <section class="panel" id="bookHeaderPanel">
+            <div class="book-status">
+              <div>
+                <h2 id="bookName">《雾港疑局》</h2>
+                <p id="bookDesc">以书为中心。生成后的章节会进入编辑器，用户可直接修改。</p>
+              </div>
+              <div class="actions">
+                <button class="btn primary" id="continueBtn">继续写本章</button>
+                <button class="btn" id="deslopBtn">去 AI 味</button>
+                <button class="btn" id="reviewBtn">审稿</button>
+              </div>
+            </div>
+            <div class="tabs" id="tabs">
+              <button class="tab" data-tab="dashboard">Dashboard</button>
+              <button class="tab active" data-tab="writing">写作编辑器</button>
+              <button class="tab" data-tab="claude">Claude 会话</button>
+              <button class="tab" data-tab="workflow">创作流程</button>
+              <button class="tab" data-tab="publish">发布</button>
+              <button class="tab" data-tab="tools">资料 / 工具</button>
+            </div>
+          </section>
+
+          <section class="panel editor-panel" id="writingView">
+            <div class="editor-toolbar">
+              <div class="title">
+                <strong id="editorTitle">第037章 暴雨夜的第二具尸体</strong>
+                <span id="editorMeta">正文/第037章_暴雨夜的第二具尸体.md</span>
+              </div>
+              <div class="actions">
+                <button class="btn small" id="selectionPolishBtn">润色选中</button>
+                <button class="btn small" id="selectionRewriteBtn">改写选中</button>
+                <button class="btn small" id="saveBtn">保存</button>
+              </div>
+            </div>
+            <div class="editor-wrap">
+              <textarea class="editor" id="editor"></textarea>
+            </div>
+            <div class="editor-footer">
+              <div><span id="saveState">已保存</span> · <span id="wordCount">0 字</span></div>
+              <div>Claude 生成后自动刷新；用户修改后手动保存。</div>
+            </div>
+          </section>
+
+          <section class="panel simple-page hidden" id="dashboardView"></section>
+          <section class="panel simple-page hidden" id="claudeView"></section>
+          <section class="panel simple-page hidden" id="workflowView"></section>
+          <section class="panel simple-page hidden" id="publishView"></section>
+          <section class="panel simple-page hidden" id="toolsView"></section>
+          <section class="panel simple-page hidden" id="globalPageView"></section>
+        </section>
+
+        <aside class="panel runner" id="runnerPanel">
+          <div class="runner-head">
+            <div>
+              <h2>Claude Code 执行面板</h2>
+              <span id="runnerSub">当前动作 · idle</span>
+            </div>
+            <div class="runner-status">
+              <strong id="runnerTimer">00:00</strong><br />
+              <span id="runnerStatus">空闲</span>
+            </div>
+          </div>
+          <div class="terminal" id="terminal"></div>
+          <div class="runner-actions">
+            <div class="row">
+              <input id="answerInput" placeholder="回答 Claude 的问题，或向当前书级会话发送补充要求…" />
+              <button class="btn" id="sendAnswerBtn">发送</button>
+            </div>
+            <div class="row">
+              <button class="btn" id="stopBtn">停止</button>
+              <button class="btn" id="resumeBtn">继续 / 恢复</button>
+              <button class="btn" id="fullSessionBtn">完整会话</button>
+            </div>
+          </div>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="newBookModal">
+    <div class="modal">
+      <header><h3>新建一本书</h3><button class="btn ghost small" data-close-modal>关闭</button></header>
+      <main>
+        <textarea id="newBookIdea" placeholder="例如：现代悬疑复仇文，强反转，女主在雾港追查旧案……"></textarea>
+      </main>
+      <footer>
+        <button class="btn" data-close-modal>取消</button>
+        <button class="btn primary" id="createBookConfirm">开始生成</button>
+      </footer>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const data = {
+      books: [
+        {
+          id: 'fog', title: '雾港疑局', root: 'novels/雾港疑局', active: true,
+          desc: '现代都市悬疑，旧案、港口、复仇与强反转。',
+          chapters: [
+            { id: 'fog-34', no: 34, title: '码头枪声', stage: '可发布', path: '正文/第034章_码头枪声.md', content: '码头的风很咸。\n\n枪声响起的时候，林岚正站在废弃仓库的阴影里。\n\n她没有回头。\n\n因为她听出来了，那不是冲她来的。\n\n十七年前，父亲失踪的那个雨夜，也有过同样的枪声。' },
+            { id: 'fog-35', no: 35, title: '空白监控', stage: '待审稿', path: '正文/第035章_空白监控.md', content: '监控室里只剩下机器运转的嗡鸣。\n\n第七码头昨晚所有摄像头都坏了。\n\n不是断电。\n\n是从凌晨两点十三分开始，每一段录像都变成了空白。\n\n林岚把进度条拖到最后。\n\n屏幕黑了一秒。\n\n然后出现了一张脸。' },
+            { id: 'fog-36', no: 36, title: '旧案卷宗', stage: '已初稿', path: '正文/第036章_旧案卷宗.md', content: '卷宗袋已经泛黄。\n\n封口处有一道被重新粘过的痕迹。\n\n林岚用刀片挑开胶线，里面掉出半张照片。\n\n照片上有三个人。\n\n父亲站在最左边，笑得很淡。\n\n最右边那个人，她昨晚才见过。' },
+            { id: 'fog-37', no: 37, title: '暴雨夜的第二具尸体', stage: '待写作', path: '正文/第037章_暴雨夜的第二具尸体.md', content: '' },
+          ],
+        },
+        {
+          id: 'night', title: '长夜归途', root: 'novels/长夜归途', desc: '末世废土，归乡、秩序重建、群像。',
+          chapters: [
+            { id: 'night-1', no: 1, title: '雪线以北', stage: '已初稿', path: '正文/第001章_雪线以北.md', content: '雪线以北没有路。\n\n陈烬把最后一颗子弹塞进弹匣，抬头看向远处的信号塔。' },
+            { id: 'night-2', no: 2, title: '失效的灯塔', stage: '待写作', path: '正文/第002章_失效的灯塔.md', content: '' },
+          ],
+        },
+        {
+          id: 'rule', title: '规则怪谈档案', root: 'novels/规则怪谈档案', desc: '无限流规则怪谈，高压副本和档案解谜。',
+          chapters: [
+            { id: 'rule-1', no: 1, title: '请勿回头', stage: '待写作', path: '正文/第001章_请勿回头.md', content: '' },
+          ],
+        },
+      ],
+      selectedBookId: 'fog',
+      selectedChapterId: 'fog-37',
+      currentPage: 'library',
+      currentTab: 'writing',
+      dirty: false,
+      running: false,
+      seconds: 0,
+      timer: null,
+      pendingQuestion: null,
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function selectedBook() { return data.books.find(b => b.id === data.selectedBookId); }
+    function selectedChapter() { const b = selectedBook(); return b.chapters.find(c => c.id === data.selectedChapterId) || b.chapters[0]; }
+
+    function toast(message) {
+      const node = document.createElement('div');
+      node.className = 'toast-item';
+      node.textContent = message;
+      $('toast').appendChild(node);
+      setTimeout(() => node.remove(), 2600);
+    }
+
+    function stagePill(stage) {
+      const cls = stage === '可发布' || stage === '已发布' ? 'green' : stage === '待写作' ? 'red' : 'orange';
+      return `<span class="pill ${cls}">${stage}</span>`;
+    }
+
+    function renderBooks() {
+      $('bookList').innerHTML = data.books.map(book => {
+        const publishable = book.chapters.filter(c => c.stage === '可发布').length;
+        const pending = book.chapters.filter(c => c.stage === '待写作').length;
+        return `<button class="book-card ${book.id === data.selectedBookId ? 'active' : ''}" data-book="${book.id}">
+          <div class="book-title">${book.title}</div>
+          <div class="meta">${book.root}<br />${book.chapters.length} 章 · ${book.desc}</div>
+          <div class="pills">
+            <span class="pill green">可发布 ${publishable}</span>
+            <span class="pill orange">待写 ${pending}</span>
+          </div>
+        </button>`;
+      }).join('');
+      document.querySelectorAll('[data-book]').forEach(btn => btn.onclick = () => selectBook(btn.dataset.book));
+    }
+
+    function renderChapters() {
+      const book = selectedBook();
+      $('chapterList').innerHTML = book.chapters.map(ch => `<button class="chapter ${ch.id === data.selectedChapterId ? 'active' : ''}" data-chapter="${ch.id}">
+        <strong>第 ${String(ch.no).padStart(3, '0')} 章 ${ch.title}</strong>
+        <span>${ch.path}</span>
+        <div class="pills">${stagePill(ch.stage)}</div>
+      </button>`).join('');
+      document.querySelectorAll('[data-chapter]').forEach(btn => btn.onclick = () => selectChapter(btn.dataset.chapter));
+    }
+
+    function selectBook(bookId) {
+      if (data.dirty && !confirm('当前章节还没保存，确定切换书籍？')) return;
+      data.selectedBookId = bookId;
+      data.selectedChapterId = selectedBook().chapters[0].id;
+      data.dirty = false;
+      data.currentPage = 'library';
+      data.currentTab = 'writing';
+      render();
+      toast('已切换到《' + selectedBook().title + '》');
+    }
+
+    function selectChapter(chapterId) {
+      if (data.dirty && !confirm('当前章节还没保存，确定切换章节？')) return;
+      data.selectedChapterId = chapterId;
+      data.dirty = false;
+      data.currentTab = 'writing';
+      render();
+    }
+
+    function renderHeader() {
+      const book = selectedBook();
+      const ch = selectedChapter();
+      $('crumbs').textContent = data.currentPage === 'library'
+        ? `书库 / ${book.title} / ${data.currentTab === 'writing' ? '写作编辑器' : tabName(data.currentTab)}`
+        : tabName(data.currentPage);
+      $('pageTitle').textContent = data.currentPage === 'library' ? '书库 + 单书写作工作台' : tabName(data.currentPage);
+      $('pageSubtitle').textContent = data.currentPage === 'library'
+        ? '生成章节后进入编辑器，用户可直接改稿；右侧面板负责 Web 与 Claude Code 交互。'
+        : globalSubtitle(data.currentPage);
+      $('bookName').textContent = `《${book.title}》`;
+      $('bookDesc').textContent = `${book.desc} · 当前章节：第 ${String(ch.no).padStart(3, '0')} 章 ${ch.title}`;
+    }
+
+    function tabName(key) {
+      return ({ dashboard: 'Dashboard', writing: '写作编辑器', claude: 'Claude 会话', workflow: '创作流程', publish: '发布', tools: '资料 / 工具', tasks: '当前任务', market: '市场 / 对标', resources: '资料库', publishing: '账号发布', settings: '设置', library: '书库' })[key] || key;
+    }
+    function globalSubtitle(key) {
+      return ({ tasks: '查看所有书正在运行、等待回答和失败的任务。', market: '扫榜、拆文、对标与选题池。', resources: '管理全局资料，并绑定到具体书籍。', publishing: '管理账号、平台书籍绑定和全局发布任务。', settings: '管理 Claude runtime、能力绑定和工作区设置。' })[key] || '';
+    }
+
+    function renderTabs() {
+      document.querySelectorAll('.tab').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === data.currentTab));
+      $('writingView').classList.toggle('hidden', !(data.currentPage === 'library' && data.currentTab === 'writing'));
+      ['dashboard','claude','workflow','publish','tools'].forEach(key => $(key + 'View').classList.toggle('hidden', !(data.currentPage === 'library' && data.currentTab === key)));
+      $('globalPageView').classList.toggle('hidden', data.currentPage === 'library');
+      if (data.currentPage !== 'library') renderGlobalPage();
+      if (data.currentTab === 'dashboard') renderDashboard();
+      if (data.currentTab === 'claude') renderClaudeTab();
+      if (data.currentTab === 'workflow') renderWorkflow();
+      if (data.currentTab === 'publish') renderPublish();
+      if (data.currentTab === 'tools') renderTools();
+    }
+
+    function renderEditor() {
+      const ch = selectedChapter();
+      $('editorTitle').textContent = `第 ${String(ch.no).padStart(3, '0')} 章 ${ch.title}`;
+      $('editorMeta').textContent = ch.path;
+      if (document.activeElement !== $('editor')) $('editor').value = ch.content;
+      updateWordCount();
+      $('saveState').textContent = data.dirty ? '未保存' : '已保存';
+    }
+
+    function updateWordCount() {
+      const text = $('editor').value || '';
+      const count = text.replace(/\s/g, '').length;
+      $('wordCount').textContent = `${count} 字`;
+    }
+
+    function saveEditor() {
+      const ch = selectedChapter();
+      ch.content = $('editor').value;
+      data.dirty = false;
+      $('saveState').textContent = '已保存';
+      updateWordCount();
+      toast('章节已保存');
+    }
+
+    function appendLog(html) {
+      $('terminal').innerHTML += html + '\n';
+      $('terminal').scrollTop = $('terminal').scrollHeight;
+    }
+
+    function setRunning(action) {
+      data.running = true;
+      data.seconds = 0;
+      clearInterval(data.timer);
+      data.timer = setInterval(() => {
+        data.seconds += 1;
+        const m = String(Math.floor(data.seconds / 60)).padStart(2, '0');
+        const s = String(data.seconds % 60).padStart(2, '0');
+        $('runnerTimer').textContent = `${m}:${s}`;
+      }, 1000);
+      $('runnerSub').textContent = `当前动作 · ${action}`;
+      $('runnerStatus').textContent = '运行中';
+    }
+
+    function stopRunning(status = '完成') {
+      data.running = false;
+      clearInterval(data.timer);
+      $('runnerStatus').textContent = status;
+    }
+
+    function resetTerminal() {
+      $('terminal').innerHTML = '';
+      data.pendingQuestion = null;
+    }
+
+    function runContinueChapter() {
+      const book = selectedBook();
+      const ch = selectedChapter();
+      resetTerminal();
+      setRunning('chapter.continue');
+      appendLog('<span class="log-muted">[Action Registry]</span>');
+      appendLog('<span class="log-input">product action: chapter.continue</span>');
+      appendLog('capability: /story-long-write');
+      appendLog('scope: book + chapter');
+      appendLog('');
+      appendLog('<span class="log-muted">[Claude]</span>');
+      appendLog(`正在读取《${book.title}》的设定、大纲、追踪上下文……`);
+      appendLog(`已定位章节文件：${ch.path}`);
+      appendLog('正在检查上一章结尾钩子和本章目标。');
+      setTimeout(() => askQuestion('这一章是否要加快节奏，直接让关键事件出现？', ['A. 直接出现，加强冲击', 'B. 先制造失踪悬念', 'C. 保持原节奏']), 900);
+    }
+
+    function askQuestion(question, options) {
+      data.pendingQuestion = { question, options };
+      appendLog(`<div class="question-box"><strong>Claude 提问：</strong>${question}<div class="question-options">${options.map(o => `<button data-answer-option="${o}">${o}</button>`).join('')}</div></div>`);
+      appendLog('&gt; 等待用户回答……');
+      document.querySelectorAll('[data-answer-option]').forEach(btn => btn.onclick = () => answerQuestion(btn.dataset.answerOption));
+      $('runnerStatus').textContent = '待回答';
+    }
+
+    function answerQuestion(answer) {
+      if (!data.pendingQuestion && !data.running) {
+        appendLog(`<span class="log-input">用户：</span>${answer}`);
+        return;
+      }
+      appendLog(`<span class="log-input">用户回答：</span>${answer}`);
+      data.pendingQuestion = null;
+      $('runnerStatus').textContent = '运行中';
+      const ch = selectedChapter();
+      appendLog('Claude 继续写入章节文件……');
+      setTimeout(() => {
+        const generated = `暴雨是在凌晨两点落下来的。\n\n林岚赶到第七码头时，警戒线已经拉到了仓库门口。\n\n雨水砸在蓝白相间的塑料布上，声音密得像一场没有停顿的鼓点。\n\n第二具尸体就躺在塑料布下面。\n\n不是失踪工人。\n\n也不是码头保安。\n\n林岚只看了一眼露在外面的那只手，胃里就沉了下去。\n\n那只手的小指缺了一截。\n\n和十七年前父亲卷宗里那张照片上一模一样。\n\n她蹲下身，雨水顺着发梢滴进衣领。\n\n旁边的年轻警员低声说：“林队，身份确认了。”\n\n林岚没有抬头。\n\n“谁？”\n\n警员咽了下口水。\n\n“周启明。”\n\n这个名字落下来的瞬间，码头的风像是突然停了。\n\n周启明。\n\n十七年前负责结案的人。`;
+        ch.content = generated;
+        ch.stage = '已初稿';
+        if (data.currentTab !== 'writing') data.currentTab = 'writing';
+        data.dirty = false;
+        render();
+        appendLog('<span class="log-ok">已写入章节文件，并刷新编辑器。</span>');
+        stopRunning('已完成');
+        toast('Claude 已生成章节，编辑器已刷新');
+      }, 1300);
+    }
+
+    function runTool(action) {
+      const ch = selectedChapter();
+      resetTerminal();
+      setRunning(action);
+      const binding = action === 'chapter.deslop' ? '/story-deslop' : action === 'chapter.review' ? '/story-review lean' : '/story-long-write';
+      appendLog('<span class="log-muted">[Action Registry]</span>');
+      appendLog(`<span class="log-input">product action: ${action}</span>`);
+      appendLog(`capability: ${binding}`);
+      appendLog(`章节文件：${ch.path}`);
+      appendLog('');
+      if (action === 'chapter.review') {
+        appendLog('正在读取章节、设定、大纲和平台 rubric……');
+        setTimeout(() => {
+          appendLog('<span class="log-ok">=== 故事审查报告（lean）===</span>');
+          appendLog('综合评定：CONCERNS');
+          appendLog('1. 章尾钩子可以更强：建议把“周启明”身份和旧案照片建立更直接冲突。');
+          appendLog('2. 中段雨夜氛围不错，但尸体发现前可再压一拍。');
+          stopRunning('已完成');
+        }, 1300);
+        return;
+      }
+      if (action === 'chapter.deslop') {
+        appendLog('正在扫描 AI 味、禁用词和句式套路……');
+        setTimeout(() => {
+          const text = $('editor').value || ch.content;
+          ch.content = text.replaceAll('仿佛', '像').replaceAll('深吸一口气', '胸口起伏了一下');
+          renderEditor();
+          appendLog('<span class="log-ok">去 AI 味完成：已尽量保留剧情、人设和伏笔，仅调整表达。</span>');
+          stopRunning('已完成');
+          toast('去 AI 味完成，编辑器已刷新');
+        }, 1200);
+        return;
+      }
+      setTimeout(() => {
+        appendLog('<span class="log-ok">工具动作完成。</span>');
+        stopRunning('已完成');
+      }, 900);
+    }
+
+    function runSelection(action) {
+      const editor = $('editor');
+      const selected = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+      if (!selected.trim()) { toast('请先在编辑器中选中一段文字'); return; }
+      resetTerminal();
+      setRunning(action);
+      appendLog('<span class="log-muted">[Editor Selection]</span>');
+      appendLog(`selected text: ${selected.slice(0, 80)}${selected.length > 80 ? '…' : ''}`);
+      appendLog(`product action: ${action}`);
+      setTimeout(() => {
+        const replacement = action.includes('rewrite')
+          ? selected + '\n\n（这里是 Claude 对选中段落的改写建议，可设计成“接受替换”或“直接替换”。）'
+          : selected.replaceAll('很', '').replaceAll('非常', '');
+        editor.setRangeText(replacement, editor.selectionStart, editor.selectionEnd, 'select');
+        data.dirty = true;
+        renderEditor();
+        appendLog('<span class="log-ok">已把选区工具结果放回编辑器，等待用户保存。</span>');
+        stopRunning('已完成');
+      }, 900);
+    }
+
+    function renderDashboard() {
+      const book = selectedBook();
+      const ch = selectedChapter();
+      $('dashboardView').innerHTML = `<div class="next-action"><div><div class="label">推荐下一步</div><strong>继续写第 ${String(ch.no).padStart(3, '0')} 章：${ch.title}</strong><p>生成完成后会自动进入编辑器，用户可直接改稿。</p></div><button class="btn primary" id="dashContinue">开始处理</button></div>
+      <div class="metrics"><div class="metric"><span>总章节</span><strong>${book.chapters.length}</strong></div><div class="metric"><span>已初稿</span><strong>${book.chapters.filter(c=>c.stage==='已初稿').length}</strong></div><div class="metric"><span>可发布</span><strong>${book.chapters.filter(c=>c.stage==='可发布').length}</strong></div><div class="metric"><span>待写作</span><strong>${book.chapters.filter(c=>c.stage==='待写作').length}</strong></div></div>
+      <div class="mini-row"><strong>写作区</strong><span>章节列表 + 正文编辑器 + Claude 面板</span></div>
+      <div class="mini-row"><strong>文件长期记忆</strong><span>大纲 / 正文 / 追踪 / 设定</span></div>`;
+      $('dashContinue').onclick = runContinueChapter;
+    }
+
+    function renderClaudeTab() {
+      $('claudeView').innerHTML = `<div class="mini-row"><strong>书级主会话</strong><span>tmux: fanqie-book-${selectedBook().id}</span></div><div class="mini-row"><strong>恢复策略</strong><span>优先持久 tmux；断开后再尝试 --continue / --resume</span></div><div class="mini-row"><strong>手动压缩</strong><span><button class="btn small" onclick="toast('已模拟压缩上下文')">压缩上下文</button></span></div><div class="mini-row"><strong>完整会话</strong><span>这里展示历史日志、提问与异常恢复。</span></div>`;
+    }
+
+    function renderWorkflow() {
+      $('workflowView').innerHTML = ['开书设定','大纲','章节目录','写作','去 AI 味','审稿','可发布确认','发布'].map((name, i) => `<div class="mini-row"><strong>${i+1}. ${name}</strong><span>${i < 4 ? '已具备基础能力' : '通过 Action Registry 调用 skill'}</span></div>`).join('');
+    }
+
+    function renderPublish() {
+      $('publishView').innerHTML = `<div class="mini-row"><strong>番茄主号</strong><span>已登录 · 已绑定平台书籍</span></div><div class="mini-row"><strong>可发布章节</strong><span>${selectedBook().chapters.filter(c=>c.stage==='可发布').length} 章</span></div><div class="mini-row"><strong>发布动作</strong><span><button class="btn small">发布章节</button> <button class="btn small">校验章节</button></span></div>`;
+    }
+
+    function renderTools() {
+      $('toolsView').innerHTML = `<div class="mini-row"><strong>本书追踪/上下文.md</strong><span>最近更新：模拟数据</span></div><div class="mini-row"><strong>伏笔.md</strong><span>3 条待回收</span></div><div class="mini-row"><strong>对标报告</strong><span>港岛迷局黄金三章</span></div><div class="mini-row"><strong>资料调研</strong><span><button class="btn small" onclick="runTool('reference.research')">查资料</button></span></div>`;
+    }
+
+    function renderGlobalPage() {
+      const title = tabName(data.currentPage);
+      $('globalPageView').innerHTML = `<div class="next-action"><div><div class="label">${title}</div><strong>${globalSubtitle(data.currentPage)}</strong><p>这个页是全局支撑系统，不抢单书写作主心智。</p></div><button class="btn primary" onclick="toast('这是原型占位动作')">模拟动作</button></div>
+      <div class="mini-row"><strong>与单书关系</strong><span>全局管理资源，单书工作台只显示绑定到当前书的内容。</span></div>
+      <div class="mini-row"><strong>可复用底座</strong><span>sessions / tasks / platform accounts / publications / files</span></div>`;
+    }
+
+    function renderRunnerInitial() {
+      if (!$('terminal').innerHTML.trim()) {
+        appendLog('<span class="log-muted">[Ready]</span>');
+        appendLog('这里模拟真实 Claude Code 交互式会话。');
+        appendLog('点击“继续写本章”会生成内容并刷新中间编辑器。');
+      }
+    }
+
+    function render() {
+      renderBooks();
+      renderChapters();
+      renderHeader();
+      renderTabs();
+      renderEditor();
+      renderRunnerInitial();
+      document.querySelectorAll('#globalNav button').forEach(btn => btn.classList.toggle('active', btn.dataset.page === data.currentPage));
+    }
+
+    $('editor').addEventListener('input', () => { data.dirty = true; $('saveState').textContent = '未保存'; updateWordCount(); });
+    $('saveBtn').onclick = saveEditor;
+    $('continueBtn').onclick = runContinueChapter;
+    $('deslopBtn').onclick = () => runTool('chapter.deslop');
+    $('reviewBtn').onclick = () => runTool('chapter.review');
+    $('selectionPolishBtn').onclick = () => runSelection('editor.selection.polish');
+    $('selectionRewriteBtn').onclick = () => runSelection('editor.selection.rewrite');
+    $('sendAnswerBtn').onclick = () => { const value = $('answerInput').value.trim(); if (!value) return; $('answerInput').value = ''; answerQuestion(value); };
+    $('answerInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('sendAnswerBtn').click(); });
+    $('stopBtn').onclick = () => { appendLog('<span class="log-muted">[System]</span> 已发送 Ctrl+C / interrupt。'); stopRunning('已停止'); };
+    $('resumeBtn').onclick = () => { appendLog('<span class="log-muted">[System]</span> 已模拟恢复当前书级 Claude 会话。'); $('runnerStatus').textContent = data.running ? '运行中' : '已恢复'; };
+    $('fullSessionBtn').onclick = () => { data.currentTab = 'claude'; render(); };
+
+    document.querySelectorAll('.tab').forEach(btn => btn.onclick = () => { data.currentPage = 'library'; data.currentTab = btn.dataset.tab; render(); });
+    document.querySelectorAll('#globalNav button').forEach(btn => btn.onclick = () => { data.currentPage = btn.dataset.page; render(); });
+
+    $('newBookBtn').onclick = () => $('newBookModal').classList.add('open');
+    document.querySelectorAll('[data-close-modal]').forEach(btn => btn.onclick = () => $('newBookModal').classList.remove('open'));
+    $('createBookConfirm').onclick = () => {
+      const idea = $('newBookIdea').value.trim() || '未命名新书';
+      const id = 'book-' + Date.now();
+      data.books.push({ id, title: idea.slice(0, 8), root: 'novels/' + idea.slice(0, 8), desc: idea, chapters: [{ id: id + '-1', no: 1, title: '第一章', stage: '待写作', path: '正文/第001章_第一章.md', content: '' }] });
+      $('newBookModal').classList.remove('open');
+      data.selectedBookId = id; data.selectedChapterId = id + '-1'; data.currentPage = 'library'; data.currentTab = 'writing';
+      resetTerminal(); render(); runTool('book.create');
+    };
+    $('importBookBtn').onclick = () => toast('模拟：导入小说');
+    $('scanBtn').onclick = () => toast('模拟：扫描 novels/ 完成');
+
+    render();
+  </script>
+</body>
+</html>

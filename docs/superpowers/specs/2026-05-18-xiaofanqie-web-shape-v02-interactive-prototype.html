@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>小番茄 Web v0.2 交互原型</title>
+  <style>
+    :root {
+      --bg: #f7efe4;
+      --paper: #fffaf3;
+      --paper-2: #f4e4d1;
+      --paper-3: #ead1b8;
+      --text: #332319;
+      --muted: #8a705c;
+      --line: #e1c8ad;
+      --accent: #e85b2a;
+      --accent-2: #f59b45;
+      --green: #638747;
+      --red: #b84b3b;
+      --blue: #4c6f99;
+      --dark: #21170f;
+      --dark-2: #2d2118;
+      --terminal: #1a100b;
+      --shadow: 0 18px 60px rgba(112, 70, 34, .12);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 8% 0%, rgba(249,155,69,.25), transparent 32%),
+        linear-gradient(135deg, #fff8ee 0%, var(--bg) 50%, #efd9c4 100%);
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    .app { height: 100vh; display: grid; grid-template-columns: 236px minmax(0,1fr); }
+    .sidebar {
+      padding: 22px 16px;
+      border-right: 1px solid var(--line);
+      background: rgba(255,250,243,.86);
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 18px; border-bottom: 1px solid var(--line); }
+    .logo { width: 40px; height: 40px; border-radius: 14px; display: grid; place-items: center; color: white; font-weight: 900; background: linear-gradient(135deg,#f97316,#dc2626); box-shadow: 0 10px 24px rgba(233,91,42,.25); }
+    .brand strong { display:block; font-size:17px; letter-spacing:-.03em; }
+    .brand span { display:block; font-size:11px; color:var(--muted); margin-top:2px; }
+    .nav { display:grid; gap:6px; }
+    .nav button { border:0; background:transparent; color:var(--muted); padding:11px 12px; border-radius:12px; text-align:left; display:flex; align-items:center; gap:10px; }
+    .nav button:hover { background: rgba(233,91,42,.06); }
+    .nav button.active { color:var(--accent); background: rgba(233,91,42,.11); font-weight:800; }
+    .dot { width:8px; height:8px; border-radius:99px; background: currentColor; opacity:.55; }
+    .sidebar-note { margin-top:auto; padding:12px; border-radius:16px; background:rgba(242,227,209,.68); border:1px solid var(--line); color:var(--muted); font-size:12px; line-height:1.65; }
+
+    .main { height:100vh; min-width:0; padding:22px; display:grid; grid-template-rows:auto minmax(0,1fr); gap:16px; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:18px; }
+    .crumbs { color:var(--muted); font-size:13px; margin-bottom:6px; }
+    h1 { margin:0; font-size:26px; letter-spacing:-.05em; }
+    .subtitle { margin-top:7px; color:var(--muted); font-size:13px; }
+    .actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+    .btn { border:1px solid var(--line); background:var(--paper); color:var(--text); padding:9px 13px; border-radius:12px; font-weight:800; box-shadow:0 8px 20px rgba(115,72,38,.05); }
+    .btn:hover { transform: translateY(-1px); }
+    .btn.primary { border-color:transparent; color:white; background:linear-gradient(135deg,var(--accent),var(--accent-2)); }
+    .btn.small { padding:6px 10px; border-radius:10px; font-size:12px; }
+    .btn.ghost { background:transparent; box-shadow:none; }
+    .btn:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+
+    .workspace { min-height:0; display:grid; grid-template-columns:292px minmax(0,1fr) 398px; gap:14px; }
+    .panel { background:rgba(255,250,243,.90); border:1px solid var(--line); border-radius:22px; box-shadow:var(--shadow); overflow:hidden; min-height:0; }
+    .panel-head { padding:15px 16px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:12px; background:rgba(255,247,236,.62); }
+    .panel-head h2 { margin:0; font-size:16px; letter-spacing:-.03em; }
+    .panel-head span { color:var(--muted); font-size:12px; }
+    .scroll { overflow:auto; min-height:0; }
+
+    .left { display:grid; grid-template-rows:auto minmax(0,1fr); }
+    .book-list, .chapter-list { padding:12px; display:grid; gap:9px; }
+    .book-card, .chapter-card { width:100%; border:1px solid var(--line); background:linear-gradient(180deg,#fffdf8,#f8eadb); border-radius:17px; padding:13px; text-align:left; color:inherit; }
+    .book-card.active, .chapter-card.active { outline:2px solid rgba(233,91,42,.22); border-color:#e5b789; background:#fff6eb; }
+    .book-card strong, .chapter-card strong { display:block; margin-bottom:5px; font-size:14px; }
+    .meta { color:var(--muted); font-size:12px; line-height:1.6; }
+    .pills { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+    .pill { display:inline-flex; align-items:center; gap:4px; padding:4px 8px; border-radius:99px; background:var(--paper-2); color:#7a5e48; font-size:11px; font-weight:800; }
+    .pill.green { background:#e7efdc; color:var(--green); }
+    .pill.red { background:#f4ddd7; color:var(--red); }
+    .pill.orange { background:#f8dfc4; color:#a45c22; }
+    .pill.blue { background:#e1e8f2; color:var(--blue); }
+
+    .center { min-width:0; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr); gap:14px; }
+    .book-head { padding:15px 16px; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:14px; align-items:center; }
+    .book-head h2 { margin:0 0 6px; font-size:22px; letter-spacing:-.04em; }
+    .book-head p { margin:0; color:var(--muted); font-size:13px; }
+    .tabs { display:flex; gap:8px; padding:0 16px 14px; overflow-x:auto; }
+    .tab { border:0; background:transparent; color:var(--muted); font-weight:900; padding:8px 11px; border-radius:12px; white-space:nowrap; }
+    .tab.active { background:rgba(233,91,42,.10); color:var(--accent); }
+
+    .editor-panel { display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
+    .toolbar { padding:12px 14px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:12px; background:rgba(255,247,236,.65); }
+    .toolbar strong { display:block; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .toolbar span { display:block; margin-top:3px; color:var(--muted); font-size:12px; }
+    textarea.editor { width:100%; height:100%; resize:none; border:0; outline:0; padding:24px 28px 40px; background:linear-gradient(90deg, rgba(226,201,174,.20) 1px, transparent 1px) 0 0 / 100% 34px, #fffdfa; color:#2f2219; font:17px/2 "Songti SC","STSong","Noto Serif CJK SC",serif; }
+    .editor-footer { padding:10px 14px; border-top:1px solid var(--line); display:flex; justify-content:space-between; gap:10px; color:var(--muted); font-size:12px; background:rgba(255,247,236,.72); }
+
+    .page { padding:16px; overflow:auto; min-height:0; display:grid; gap:14px; }
+    .next { border-radius:20px; padding:18px; background:radial-gradient(circle at 90% 0%, rgba(233,91,42,.18), transparent 32%), linear-gradient(135deg,#fffaf4,#f4e1cb); border:1px solid #e6c9aa; display:grid; grid-template-columns:minmax(0,1fr) auto; gap:16px; align-items:center; }
+    .next .label { color:var(--accent); font-size:12px; font-weight:900; margin-bottom:6px; }
+    .next strong { font-size:20px; letter-spacing:-.04em; }
+    .next p { margin:8px 0 0; color:var(--muted); font-size:13px; }
+    .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+    .metric { padding:13px; border-radius:16px; border:1px solid var(--line); background:rgba(255,255,255,.35); }
+    .metric span { color:var(--muted); font-size:12px; }
+    .metric strong { display:block; font-size:20px; margin-top:5px; }
+    .row { display:flex; justify-content:space-between; align-items:center; gap:12px; border:1px solid var(--line); border-radius:16px; background:rgba(255,255,255,.34); padding:12px; }
+    .row span { color:var(--muted); font-size:12px; }
+
+    .market-layout { display:grid; grid-template-columns:320px minmax(0,1fr); gap:14px; min-height:0; }
+    .preset-list { display:grid; gap:9px; }
+    .preset { border:1px solid var(--line); background:rgba(255,255,255,.38); border-radius:16px; padding:12px; text-align:left; }
+    .preset strong { display:block; margin-bottom:5px; }
+    .chart { height:180px; border:1px solid var(--line); border-radius:18px; background:linear-gradient(180deg,#fffaf3,#f1dfca); padding:16px; display:flex; align-items:end; gap:12px; }
+    .bar { flex:1; border-radius:12px 12px 0 0; background:linear-gradient(180deg,var(--accent-2),var(--accent)); min-height:18px; position:relative; }
+    .bar span { position:absolute; bottom:100%; left:50%; transform:translateX(-50%); margin-bottom:6px; font-size:11px; color:var(--muted); white-space:nowrap; }
+
+    .runner { display:grid; grid-template-rows:auto minmax(0,1fr) auto; background:var(--dark); color:#fff1df; }
+    .runner-head { padding:16px; border-bottom:1px solid rgba(255,255,255,.14); background:var(--dark-2); display:flex; justify-content:space-between; gap:12px; }
+    .runner-head h2 { margin:0 0 5px; font-size:18px; }
+    .runner-head span { color:#c8ad95; font-size:12px; }
+    .terminal { overflow:auto; padding:16px; background:var(--terminal); font:12.5px/1.75 "SFMono-Regular",Consolas,monospace; white-space:pre-wrap; }
+    .log-muted { color:#a98f78; }
+    .log-input { color:#ffd8a8; }
+    .log-ok { color:#bfe0a2; }
+    .log-warn { color:#ffd08a; }
+    .stage-card { margin:12px 0; padding:12px; border-radius:14px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); font-family:inherit; }
+    .check { display:flex; justify-content:space-between; gap:10px; padding:5px 0; border-bottom:1px dashed rgba(255,255,255,.12); }
+    .check:last-child { border-bottom:0; }
+    .check.ok b { color:#bfe0a2; }
+    .check.soft b { color:#ffd08a; }
+    .check.block b { color:#ff9b8f; }
+    .question { margin:12px 0; padding:12px; border-radius:14px; background:rgba(249,155,69,.13); border:1px solid rgba(249,155,69,.44); color:#ffe2c0; }
+    .question-options { display:grid; gap:8px; margin-top:10px; }
+    .question-options button { text-align:left; border:1px solid rgba(249,155,69,.35); background:rgba(255,255,255,.06); color:#ffe9d0; border-radius:10px; padding:8px 10px; font-weight:800; }
+    .runner-actions { padding:12px; display:grid; gap:10px; background:var(--dark-2); border-top:1px solid rgba(255,255,255,.10); }
+    .runner-actions .line { display:flex; gap:8px; flex-wrap:wrap; }
+    .runner-actions .btn { background:#3b2a20; color:#f7ddc4; border-color:#584033; box-shadow:none; }
+    .runner-actions input { min-width:0; flex:1; border:1px solid #584033; border-radius:12px; background:#261a14; color:#ffe9d0; padding:9px 10px; outline:0; }
+
+    .toast { position:fixed; right:22px; bottom:22px; z-index:20; display:grid; gap:8px; }
+    .toast-item { background:#2d2118; color:#fff1df; border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:11px 14px; box-shadow:0 12px 40px rgba(0,0,0,.18); font-size:13px; }
+    .hidden { display:none !important; }
+    @media (max-width: 1280px) { body { overflow:auto; height:auto; } .app { height:auto; grid-template-columns:1fr; } .sidebar { display:none; } .main { height:auto; min-height:100vh; } .workspace { grid-template-columns:1fr; } .market-layout { grid-template-columns:1fr; } .panel { min-height:360px; } .runner { min-height:540px; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><div class="logo">番</div><div><strong>小番茄写作</strong><span>AI 网文生产工作台 v0.2</span></div></div>
+      <nav class="nav" id="nav">
+        <button class="active" data-page="library"><i class="dot"></i>书库</button>
+        <button data-page="tasks"><i class="dot"></i>当前任务</button>
+        <button data-page="market"><i class="dot"></i>市场情报</button>
+        <button data-page="resources"><i class="dot"></i>资料库</button>
+        <button data-page="publishing"><i class="dot"></i>账号发布</button>
+        <button data-page="settings"><i class="dot"></i>设置</button>
+      </nav>
+      <div class="sidebar-note">v0.2 重点：写前材料检查、生成后编辑器、市场情报系统、Web ↔ Claude Code 交互。</div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div><div class="crumbs" id="crumbs">书库 / 雾港疑局 / 写作</div><h1 id="title">书库 + 单书写作工作台</h1><div class="subtitle" id="subtitle">市场情报进入材料体系；oh-story skills 负责创作工程，Web 负责交互壳。</div></div>
+        <div class="actions"><button class="btn" id="scanNovels">扫描 novels/</button><button class="btn" id="importNovel">导入小说</button><button class="btn primary" id="newBook">新建一本书</button></div>
+      </header>
+
+      <section class="workspace" id="workspace">
+        <aside class="panel left">
+          <div class="scroll">
+            <div class="panel-head"><div><h2>书库</h2><span>选书后进入单书工作台</span></div></div>
+            <div class="book-list" id="bookList"></div>
+            <div class="panel-head"><div><h2>章节 / 文件</h2><span>点击章节打开编辑器</span></div></div>
+            <div class="chapter-list" id="chapterList"></div>
+          </div>
+        </aside>
+
+        <section class="center">
+          <section class="panel" id="headPanel">
+            <div class="book-head"><div><h2 id="bookName">《雾港疑局》</h2><p id="bookInfo">生成前先材料检查；生成后进入编辑器。</p></div><div class="actions"><button class="btn primary" id="continueBtn">继续写本章</button><button class="btn" id="deslopBtn">去 AI 味</button><button class="btn" id="reviewBtn">审稿</button></div></div>
+            <div class="tabs"><button class="tab active" data-tab="writing">写作</button><button class="tab" data-tab="dashboard">Dashboard</button><button class="tab" data-tab="claude">Claude 会话</button><button class="tab" data-tab="workflow">创作流程</button><button class="tab" data-tab="publish">发布</button><button class="tab" data-tab="tools">资料 / 工具</button></div>
+          </section>
+
+          <section class="panel editor-panel" id="writingView">
+            <div class="toolbar"><div><strong id="editorTitle">第037章 暴雨夜的第二具尸体</strong><span id="editorPath">正文/第037章_暴雨夜的第二具尸体.md</span></div><div class="actions"><button class="btn small" id="selPolish">润色选中</button><button class="btn small" id="selRewrite">改写选中</button><button class="btn small" id="saveBtn">保存</button></div></div>
+            <textarea class="editor" id="editor"></textarea>
+            <div class="editor-footer"><div><span id="saveState">已保存</span> · <span id="wordCount">0 字</span></div><div>选区工具默认建议模式；整章工具可直接改文件。</div></div>
+          </section>
+          <section class="panel page hidden" id="dashboardView"></section>
+          <section class="panel page hidden" id="claudeView"></section>
+          <section class="panel page hidden" id="workflowView"></section>
+          <section class="panel page hidden" id="publishView"></section>
+          <section class="panel page hidden" id="toolsView"></section>
+          <section class="panel page hidden" id="globalView"></section>
+        </section>
+
+        <aside class="panel runner">
+          <div class="runner-head"><div><h2>Claude Code 执行面板</h2><span id="runnerSub">当前动作 · idle</span></div><div style="text-align:right"><strong id="timer">00:00</strong><br><span id="runnerStatus">空闲</span></div></div>
+          <div class="terminal" id="terminal"></div>
+          <div class="runner-actions"><div class="line"><input id="answerInput" placeholder="回答 Claude，或向书级会话补充要求…"><button class="btn" id="sendBtn">发送</button></div><div class="line"><button class="btn" id="stopBtn">停止</button><button class="btn" id="resumeBtn">继续 / 恢复</button><button class="btn" id="sessionBtn">完整会话</button></div></div>
+        </aside>
+      </section>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const state = {
+      page:'library', tab:'writing', bookId:'fog', chapterId:'fog-37', dirty:false, running:false, seconds:0, timer:null, pending:null,
+      books:[
+        {id:'fog',title:'雾港疑局',root:'novels/雾港疑局',desc:'现代悬疑复仇，旧案、港口、强反转。',market:['番茄女频悬疑阅读榜','起点悬疑新书榜'],chapters:[
+          {id:'fog-36',no:36,title:'旧案卷宗',stage:'已初稿',path:'正文/第036章_旧案卷宗.md',outline:true,review:false,content:'卷宗袋已经泛黄。\n\n封口处有一道被重新粘过的痕迹。\n\n林岚用刀片挑开胶线，里面掉出半张照片。\n\n照片上有三个人。\n\n父亲站在最左边，笑得很淡。\n\n最右边那个人，她昨晚才见过。'},
+          {id:'fog-37',no:37,title:'暴雨夜的第二具尸体',stage:'待写作',path:'正文/第037章_暴雨夜的第二具尸体.md',outline:true,review:false,content:''},
+          {id:'fog-38',no:38,title:'缺失的细纲',stage:'待写作',path:'正文/第038章_缺失的细纲.md',outline:false,review:false,content:''}
+        ]},
+        {id:'night',title:'长夜归途',root:'novels/长夜归途',desc:'末世废土，归乡与秩序重建。',market:['七猫男频大热榜'],chapters:[{id:'night-1',no:1,title:'雪线以北',stage:'已初稿',path:'正文/第001章_雪线以北.md',outline:true,review:false,content:'雪线以北没有路。\n\n陈烬把最后一颗子弹塞进弹匣，抬头看向远处的信号塔。'}]},
+      ],
+      marketJobs:[
+        {id:'m1',platform:'番茄',preset:'女频悬疑阅读榜',status:'已完成',items:342,quality:'OK',bound:'雾港疑局'},
+        {id:'m2',platform:'起点',preset:'签约作者新书榜',status:'已完成',items:48,quality:'OK',bound:'-'},
+        {id:'m3',platform:'点众',preset:'女频短篇',status:'排队中',items:0,quality:'待采集',bound:'-'},
+      ]
+    };
+    const $ = id => document.getElementById(id);
+    const book = () => state.books.find(b=>b.id===state.bookId);
+    const chapter = () => book().chapters.find(c=>c.id===state.chapterId) || book().chapters[0];
+    const toast = msg => { const n=document.createElement('div'); n.className='toast-item'; n.textContent=msg; $('toast').appendChild(n); setTimeout(()=>n.remove(),2600); };
+    const pill = s => `<span class="pill ${s==='可发布'?'green':s==='待写作'?'red':'orange'}">${s}</span>`;
+    const tabName = k => ({library:'书库',tasks:'当前任务',market:'市场情报',resources:'资料库',publishing:'账号发布',settings:'设置',writing:'写作',dashboard:'Dashboard',claude:'Claude 会话',workflow:'创作流程',publish:'发布',tools:'资料 / 工具'})[k]||k;
+
+    function renderBooks(){ $('bookList').innerHTML = state.books.map(b=>`<button class="book-card ${b.id===state.bookId?'active':''}" data-book="${b.id}"><strong>${b.title}</strong><div class="meta">${b.root}<br>${b.desc}</div><div class="pills"><span class="pill blue">市场 ${b.market.length}</span><span class="pill orange">${b.chapters.length} 章</span></div></button>`).join(''); document.querySelectorAll('[data-book]').forEach(x=>x.onclick=()=>selectBook(x.dataset.book)); }
+    function renderChapters(){ $('chapterList').innerHTML = book().chapters.map(c=>`<button class="chapter-card ${c.id===state.chapterId?'active':''}" data-chapter="${c.id}"><strong>第 ${String(c.no).padStart(3,'0')} 章 ${c.title}</strong><div class="meta">${c.path}<br>${c.outline?'有细纲':'细纲缺失'} · ${c.content?'正文已生成':'正文为空'}</div><div class="pills">${pill(c.stage)}${c.outline?'<span class="pill green">细纲</span>':'<span class="pill red">缺细纲</span>'}</div></button>`).join(''); document.querySelectorAll('[data-chapter]').forEach(x=>x.onclick=()=>selectChapter(x.dataset.chapter)); }
+    function selectBook(id){ if(state.dirty&&!confirm('当前章节未保存，确定切换？'))return; state.bookId=id; state.chapterId=book().chapters[0].id; state.page='library'; state.tab='writing'; state.dirty=false; render(); }
+    function selectChapter(id){ if(state.dirty&&!confirm('当前章节未保存，确定切换？'))return; state.chapterId=id; state.tab='writing'; state.dirty=false; render(); }
+    function renderHeader(){ $('crumbs').textContent = state.page==='library'?`书库 / ${book().title} / ${tabName(state.tab)}`:tabName(state.page); $('title').textContent = state.page==='market'?'市场情报系统': state.page==='library'?'单书写作工作台':'全局支撑模块'; $('subtitle').textContent = state.page==='market'?'扫榜、结构化入库、趋势图表、智能推荐、市场雷达。':'生成前展示材料检查，生成后进入编辑器，用户保留最终控制权。'; $('bookName').textContent=`《${book().title}》`; $('bookInfo').textContent=`${book().desc} · 当前：第 ${String(chapter().no).padStart(3,'0')} 章 ${chapter().title}`; }
+    function renderEditor(){ const c=chapter(); $('editorTitle').textContent=`第 ${String(c.no).padStart(3,'0')} 章 ${c.title}`; $('editorPath').textContent=c.path; if(document.activeElement!==$('editor')) $('editor').value=c.content; updateCount(); $('saveState').textContent=state.dirty?'未保存':'已保存'; }
+    function updateCount(){ $('wordCount').textContent = `${($('editor').value||'').replace(/\s/g,'').length} 字`; }
+    function save(){ chapter().content=$('editor').value; state.dirty=false; renderEditor(); toast('章节已保存'); }
+    function renderViews(){ ['writing','dashboard','claude','workflow','publish','tools'].forEach(k=>{ const el=$(k+'View'); if(el) el.classList.toggle('hidden', !(state.page==='library'&&state.tab===k)); }); $('globalView').classList.toggle('hidden', state.page==='library'); document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===state.tab)); if(state.page!=='library') renderGlobal(); if(state.tab==='dashboard') renderDashboard(); if(state.tab==='claude') renderClaude(); if(state.tab==='workflow') renderWorkflow(); if(state.tab==='publish') renderPublish(); if(state.tab==='tools') renderTools(); }
+    function renderDashboard(){ $('dashboardView').innerHTML=`<div class="next"><div><div class="label">推荐下一步</div><strong>${chapter().outline?'继续写本章':'先补本章细纲'}</strong><p>右侧面板会先展示 oh-story 写前材料检查，再进入生成。</p></div><button class="btn primary" onclick="runContinue()">开始</button></div><div class="metrics"><div class="metric"><span>总章节</span><strong>${book().chapters.length}</strong></div><div class="metric"><span>市场绑定</span><strong>${book().market.length}</strong></div><div class="metric"><span>待写</span><strong>${book().chapters.filter(c=>c.stage==='待写作').length}</strong></div><div class="metric"><span>缺细纲</span><strong>${book().chapters.filter(c=>!c.outline).length}</strong></div></div>`; }
+    function renderClaude(){ $('claudeView').innerHTML=`<div class="row"><strong>书级主会话</strong><span>tmux / PTY · fanqie-book-${book().id}</span></div><div class="row"><strong>恢复策略</strong><span>优先持久会话，断开后再 resume/continue</span></div><div class="row"><strong>结构化标记</strong><span>WORKBENCH_STAGE / CHECK / FILE_UPDATED</span></div>`; }
+    function renderWorkflow(){ $('workflowView').innerHTML=['市场情报绑定','写前材料检查','补细纲/补资料','生成正文','编辑器人工修改','去 AI 味','审稿','发布'].map((x,i)=>`<div class="row"><strong>${i+1}. ${x}</strong><span>${i<4?'oh-story skill 主导':'Web + skill 协作'}</span></div>`).join(''); }
+    function renderPublish(){ $('publishView').innerHTML=`<div class="row"><strong>番茄主号</strong><span>已登录 · 已绑定</span></div><div class="row"><strong>可发布章节</strong><span>0 章</span></div><div class="row"><strong>发布边界</strong><span>发布状态机在小番茄，不交给 Claude 自由操作</span></div>`; }
+    function renderTools(){ $('toolsView').innerHTML=`<div class="row"><strong>市场扫描</strong><span>${book().market.join('、')}</span></div><div class="row"><strong>追踪/上下文.md</strong><span>写完后由 skill 更新</span></div><div class="row"><strong>伏笔.md / 时间线.md</strong><span>作为长期记忆材料</span></div>`; }
+    function renderGlobal(){ if(state.page==='market') return renderMarket(); $('globalView').innerHTML=`<div class="next"><div><div class="label">${tabName(state.page)}</div><strong>全局支撑模块</strong><p>不抢单书写作主线，服务书籍工作台。</p></div><button class="btn primary" onclick="toast('模拟动作')">模拟动作</button></div>`; }
+    function renderMarket(){ $('globalView').innerHTML=`<div class="market-layout"><div class="panel" style="box-shadow:none"><div class="panel-head"><div><h2>扫榜 Preset</h2><span>复用 oh-story 脚本</span></div></div><div class="page"><div class="preset-list">${['番茄女频阅读榜','番茄男频阅读榜','起点签约作者新书榜','七猫大热榜','晋江收入金榜','点众女频短篇','黑岩短篇书库'].map(x=>`<button class="preset" onclick="runMarketScan('${x}')"><strong>${x}</strong><div class="meta">采集 Markdown + 结构化入库 + 趋势分析</div></button>`).join('')}</div></div></div><div class="panel page" style="box-shadow:none"><div class="next"><div><div class="label">市场雷达</div><strong>题材趋势、智能推荐、榜单变化监控</strong><p>第一阶段可以先跑脚本，第二阶段入库和图表，第三阶段推荐排序与日报。</p></div><button class="btn primary" onclick="runMarketScan('全平台自动抓取')">全平台抓取</button></div><div class="chart"><div class="bar" style="height:72%"><span>悬疑</span></div><div class="bar" style="height:58%"><span>复仇</span></div><div class="bar" style="height:44%"><span>规则怪谈</span></div><div class="bar" style="height:64%"><span>年代</span></div><div class="bar" style="height:36%"><span>种田</span></div></div>${state.marketJobs.map(j=>`<div class="row"><strong>${j.platform} · ${j.preset}</strong><span>${j.status} · ${j.items} 条 · ${j.quality} · 绑定：${j.bound}</span></div>`).join('')}<div class="row"><strong>智能推荐</strong><span>雾港疑局适合绑定番茄女频悬疑、起点悬疑新书榜做方向校准</span></div></div></div>`; }
+
+    function start(action){ state.running=true; state.seconds=0; clearInterval(state.timer); state.timer=setInterval(()=>{state.seconds++; $('timer').textContent=`${String(Math.floor(state.seconds/60)).padStart(2,'0')}:${String(state.seconds%60).padStart(2,'0')}`;},1000); $('runnerSub').textContent=`当前动作 · ${action}`; $('runnerStatus').textContent='运行中'; $('terminal').innerHTML=''; }
+    function done(status='已完成'){ state.running=false; clearInterval(state.timer); $('runnerStatus').textContent=status; }
+    function log(html){ $('terminal').innerHTML += html+'\n'; $('terminal').scrollTop=$('terminal').scrollHeight; }
+    function materialHtml(c){ const checks=[['大纲/细纲_'+String(c.no).padStart(3,'0')+'.md',c.outline?'ok':'block',c.outline?'ok':'missing'],['上一章正文','ok','ok'],['追踪/上下文.md','ok','ok'],['追踪/伏笔.md','ok','ok'],['追踪/时间线.md','ok','ok'],['对标/市场扫描/番茄悬疑榜.md','ok','ok'],['参考资料/法医鉴定流程.md','soft','missing']]; return `<div class="stage-card"><b>[WORKBENCH_STAGE: materials]</b>${checks.map(x=>`<div class="check ${x[1]}"><span>${x[0]}</span><b>${x[2]}</b></div>`).join('')}</div>`; }
+    function runContinue(){ const c=chapter(); start('chapter.continue'); log('<span class="log-muted">[Action Registry]</span>'); log('<span class="log-input">product action: chapter.continue</span>'); log('capability: oh-story-claudecode /story-long-write'); log('scope: book + chapter'); setTimeout(()=>{ log(materialHtml(c)); if(!c.outline){ log('<span class="log-warn">硬阻塞：本章细纲缺失，先补细纲。</span>'); setTimeout(()=>{ c.outline=true; log('<span class="log-ok">[WORKBENCH_FILE_UPDATED: 大纲/细纲_'+String(c.no).padStart(3,'0')+'.md]</span>'); ask('参考资料缺失，是否先补资料再写？',['先查资料','继续写，弱化专业细节']); renderChapters(); },1000); } else { ask('参考资料缺失，是否先补资料再写？',['先查资料','继续写，弱化专业细节']); } },700); }
+    function ask(q,opts){ state.pending={q,opts}; $('runnerStatus').textContent='待回答'; log(`<div class="question"><strong>Claude 提问：</strong>${q}<div class="question-options">${opts.map(o=>`<button data-answer="${o}">${o}</button>`).join('')}</div></div>`); document.querySelectorAll('[data-answer]').forEach(b=>b.onclick=()=>answer(b.dataset.answer)); }
+    function answer(text){ if(!text) return; log('<span class="log-input">用户回答：</span>'+text); $('runnerStatus').textContent='运行中'; if(text.includes('查资料')){ log('<span class="log-muted">[WORKBENCH_STAGE: research]</span> 正在补充参考资料/法医鉴定流程.md'); setTimeout(()=>{ log('<span class="log-ok">[WORKBENCH_FILE_UPDATED: 参考资料/法医鉴定流程.md]</span>'); writeChapter(); },900); } else writeChapter(); }
+    function writeChapter(){ const c=chapter(); log('<span class="log-muted">[WORKBENCH_STAGE: writing]</span> 正在写入章节正文……'); setTimeout(()=>{ c.content='暴雨是在凌晨两点落下来的。\n\n林岚赶到第七码头时，警戒线已经拉到了仓库门口。\n\n雨水砸在蓝白相间的塑料布上，声音密得像一场没有停顿的鼓点。\n\n第二具尸体就躺在塑料布下面。\n\n不是失踪工人。\n\n也不是码头保安。\n\n林岚只看了一眼露在外面的那只手，胃里就沉了下去。\n\n那只手的小指缺了一截。\n\n和十七年前父亲卷宗里那张照片上一模一样。\n\n旁边的年轻警员低声说：“林队，身份确认了。”\n\n林岚没有抬头。\n\n“谁？”\n\n“周启明。”'; c.stage='已初稿'; state.tab='writing'; state.dirty=false; render(); log('<span class="log-ok">[WORKBENCH_FILE_UPDATED: '+c.path+']</span>'); log('<span class="log-ok">[WORKBENCH_STAGE: done]</span> 已刷新编辑器。'); done(); toast('章节已生成，编辑器已刷新'); },1200); }
+    function runTool(action){ start(action); log('<span class="log-muted">[Action Registry]</span>'); log('product action: '+action); log('capability: '+(action.includes('deslop')?'/story-deslop':action.includes('review')?'/story-review':'/story-long-write')); setTimeout(()=>{ if(action.includes('deslop')){ chapter().content=($('editor').value||chapter().content).replaceAll('仿佛','像').replaceAll('深吸一口气','胸口起伏了一下'); renderEditor(); log('<span class="log-ok">去 AI 味完成，编辑器已刷新。</span>'); } else if(action.includes('review')){ log('=== 审稿报告 ===\n综合评定：CONCERNS\n1. 章尾钩子可以再强。\n2. 市场绑定材料建议引用番茄悬疑榜。'); } done(); },900); }
+    function runSelection(action){ const e=$('editor'); const text=e.value.slice(e.selectionStart,e.selectionEnd); if(!text.trim()) return toast('请先选中一段文字'); start(action); log('选区：'+text.slice(0,80)); setTimeout(()=>{ const rep = text + '\n\n（Claude 建议：这里可以加一句更具压迫感的动作描写。点击保存后才写入文件。）'; e.setRangeText(rep,e.selectionStart,e.selectionEnd,'select'); state.dirty=true; renderEditor(); log('<span class="log-ok">建议已放回编辑器，等待保存。</span>'); done(); },800); }
+    function runMarketScan(name){ state.page='market'; render(); start('market.scan'); log('<span class="log-muted">[MarketScanRunner]</span>'); log('preset: '+name); log('调用 oh-story-claudecode 扫榜脚本……'); setTimeout(()=>{ const id='m'+Date.now(); state.marketJobs.unshift({id,platform:name.slice(0,2),preset:name,status:'已完成',items:Math.floor(Math.random()*260)+40,quality:'OK',bound:'-'}); log('<span class="log-ok">已保存 Markdown：data/market-scans/'+name+'.md</span>'); log('<span class="log-ok">已结构化入库：market_book_snapshots</span>'); done(); renderMarket(); toast('市场扫描完成'); },1200); }
+    function render(){ renderBooks(); renderChapters(); renderHeader(); renderViews(); renderEditor(); document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===state.page)); if(!$('terminal').innerHTML.trim()) log('<span class="log-muted">[Ready]</span> 点击“继续写本章”查看材料检查 → 生成 → 编辑器刷新流程。'); }
+
+    $('editor').oninput=()=>{ state.dirty=true; $('saveState').textContent='未保存'; updateCount(); };
+    $('saveBtn').onclick=save; $('continueBtn').onclick=runContinue; $('deslopBtn').onclick=()=>runTool('chapter.deslop'); $('reviewBtn').onclick=()=>runTool('chapter.review'); $('selPolish').onclick=()=>runSelection('editor.selection.polish'); $('selRewrite').onclick=()=>runSelection('editor.selection.rewrite');
+    $('sendBtn').onclick=()=>{ const v=$('answerInput').value.trim(); if(v){$('answerInput').value=''; answer(v);} };
+    $('answerInput').onkeydown=e=>{ if(e.key==='Enter') $('sendBtn').click(); };
+    $('stopBtn').onclick=()=>{ log('<span class="log-warn">已发送 interrupt / Ctrl+C。</span>'); done('已停止'); };
+    $('resumeBtn').onclick=()=>{ log('<span class="log-muted">已尝试恢复当前书级 Claude 会话。</span>'); toast('已模拟恢复'); };
+    $('sessionBtn').onclick=()=>{ state.page='library'; state.tab='claude'; render(); };
+    document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{ state.page='library'; state.tab=t.dataset.tab; render(); });
+    document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{ state.page=b.dataset.page; render(); });
+    $('scanNovels').onclick=()=>toast('模拟扫描 novels/ 完成'); $('importNovel').onclick=()=>toast('模拟导入小说'); $('newBook').onclick=()=>toast('模拟新建一本书');
+    render();
+  </script>
+</body>
+</html>
