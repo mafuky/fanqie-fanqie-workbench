@@ -10,20 +10,36 @@ export type ClaudeEvent =
   | { type: 'tool_use'; name: string; input: any }
   | { type: 'error'; message: string }
   | { type: 'done'; exitCode: number | null }
+  | { type: 'session_id'; sessionId: string }
+
+export type ClaudeSessionOptions = {
+  resumeId?: string
+  cwd?: string
+  permissionMode?: string
+}
 
 export class ClaudeSession extends EventEmitter {
   private child: ChildProcess | null = null
   private buffer = ''
 
-  start(prompt: string, cwd?: string) {
+  start(prompt: string, options?: ClaudeSessionOptions) {
     const args = [
       '-p', '--verbose',
       '--output-format', 'stream-json',
-      prompt,
     ]
 
+    if (options?.resumeId) {
+      args.push('--resume', options.resumeId)
+    }
+
+    if (options?.permissionMode) {
+      args.push('--permission-mode', options.permissionMode)
+    }
+
+    args.push(prompt)
+
     this.child = spawn('claude', args, {
-      cwd: cwd || WORKSPACE_ROOT,
+      cwd: options?.cwd || WORKSPACE_ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env },
     })
@@ -84,7 +100,9 @@ export class ClaudeSession extends EventEmitter {
     }
 
     if (event.type === 'result') {
-      // Final result event — don't emit done here, wait for 'close'
+      if (event.session_id) {
+        this.emit('claude', { type: 'session_id', sessionId: event.session_id } as ClaudeEvent)
+      }
     }
   }
 

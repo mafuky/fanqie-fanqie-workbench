@@ -3,6 +3,7 @@ import type React from 'react'
 import type { ChapterStage } from '../../domain/chapter.js'
 import { getPlatformLabel, type KnownPlatform } from '../../domain/platform.js'
 import { LiveLogPanel } from '../components/live-log-panel.js'
+import { ReviewCheckpointCard } from '../components/review-checkpoint-card.js'
 import { useTheme } from '../app.js'
 import { PageHeader } from '../components/ui/page-header.js'
 import { Card } from '../components/ui/card.js'
@@ -241,7 +242,7 @@ export function BooksPage() {
   const [stageFilter, setStageFilter] = useState<ChapterStage | 'all'>('all')
   const [processingChapterId, setProcessingChapterId] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const [sessionStatus, setSessionStatus] = useState<'running' | 'succeeded' | 'failed' | null>(null)
+  const [sessionStatus, setSessionStatus] = useState<'running' | 'waiting-review' | 'succeeded' | 'failed' | null>(null)
   const [pendingBookEntrySessionId, setPendingBookEntrySessionId] = useState<string | null>(null)
   const [bookCreationOpen, setBookCreationOpen] = useState(false)
   const [bookCreationLoading, setBookCreationLoading] = useState(false)
@@ -337,7 +338,7 @@ export function BooksPage() {
     const savedBookEntrySessionId = localStorage.getItem('fanqie:books:book-entry-session')
     if (savedBookEntrySessionId) {
       fetch(`/api/sessions/${savedBookEntrySessionId}`).then((res) => res.json()).then((data) => {
-        if (data.session && (data.session.status === 'running' || data.session.status === 'waiting-answer')) {
+        if (data.session && (data.session.status === 'running' || data.session.status === 'waiting-answer' || data.session.status === 'waiting-permission')) {
           setSessionId(savedBookEntrySessionId)
           setPendingBookEntrySessionId(savedBookEntrySessionId)
           setActiveActionLabel('新建一本书')
@@ -354,7 +355,7 @@ export function BooksPage() {
     try {
       const saved = JSON.parse(raw) as { sessionId: string; bookId: string; chapterId: string }
       fetch(`/api/sessions/${saved.sessionId}`).then((res) => res.json()).then((data) => {
-        if (data.session && (data.session.status === 'running' || data.session.status === 'waiting-answer')) {
+        if (data.session && (data.session.status === 'running' || data.session.status === 'waiting-answer' || data.session.status === 'waiting-permission')) {
           setSessionId(saved.sessionId)
           setProcessingChapterId(saved.chapterId)
           setExpandedBookId(saved.bookId)
@@ -391,6 +392,15 @@ export function BooksPage() {
       return null
     }
   })()
+
+  useEffect(() => {
+    if (!selectedBookSession || sessionId) return
+    if (selectedBookSession.status !== 'waiting-review') return
+    setSessionId(selectedBookSession.id)
+    setSessionStatus('waiting-review')
+    setProcessingChapterId(selectedBookSession.chapterId)
+    setActiveActionLabel(selectedBookSession.currentSkill || '章节审阅')
+  }, [selectedBookSession, sessionId])
 
   const handleCreateBook = useCallback(async (idea: string) => {
     if (!idea) return
@@ -465,28 +475,28 @@ export function BooksPage() {
     setProcessingChapterId(chapterId)
     setSessionId(null)
     setSessionStatus('running')
-    setActiveActionLabel('处理')
+    setActiveActionLabel('继续写')
 
     const currentBookId = expandedBookId
     if (!currentBookId) return
 
     try {
-      const res = await fetch('/api/sessions', {
+      const res = await fetch('/api/actions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          kind: 'chapter',
+          actionKey: 'chapter.continue',
           bookId: currentBookId,
           chapterId,
-          currentSkill: 'chapter-pipeline',
         }),
       })
       const data = await res.json()
+      if (!res.ok) throw new Error(data.error || '启动写作失败')
       completedSessionIdsRef.current.delete(data.session.id)
       setSessionId(data.session.id)
       localStorage.setItem('fanqie:books:active-session', JSON.stringify({ sessionId: data.session.id, bookId: currentBookId, chapterId }))
-    } catch {
-      toast.error('处理请求失败')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '处理请求失败')
       setProcessingChapterId(null)
       setSessionStatus(null)
     }
@@ -499,6 +509,13 @@ export function BooksPage() {
     'chapter-rewrite': '重写本章',
   }
 
+  const actionKeyMap: Record<ChapterActionKey, string> = {
+    'chapter-polish': 'chapter.polish',
+    'chapter-deslop': 'chapter.deslop',
+    'chapter-review': 'chapter.review',
+    'chapter-rewrite': 'chapter.rewrite',
+  }
+
   const handleChapterAction = useCallback(async (chapterId: string, action: ChapterActionKey) => {
     if (!expandedBookId) return
     setProcessingChapterId(chapterId)
@@ -508,22 +525,22 @@ export function BooksPage() {
     setOpenActionChapterId(null)
 
     try {
-      const res = await fetch('/api/sessions', {
+      const res = await fetch('/api/actions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          kind: 'chapter',
+          actionKey: actionKeyMap[action] || action,
           bookId: expandedBookId,
           chapterId,
-          currentSkill: action,
         }),
       })
       const data = await res.json()
+      if (!res.ok) throw new Error(data.error || '章节操作启动失败')
       completedSessionIdsRef.current.delete(data.session.id)
       setSessionId(data.session.id)
       localStorage.setItem('fanqie:books:active-session', JSON.stringify({ sessionId: data.session.id, bookId: expandedBookId, chapterId }))
-    } catch {
-      toast.error('章节高级操作请求失败')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '章节高级操作请求失败')
       setProcessingChapterId(null)
       setSessionStatus(null)
     }
@@ -539,21 +556,10 @@ export function BooksPage() {
 
     if (pendingBookEntrySessionId === sessionId) {
       if (success) {
-        setBookEntryStepIndex(4)
-        const sessionRes = await fetch(`/api/sessions/${sessionId}`)
-        const sessionData = await sessionRes.json().catch(() => ({}))
-        let snapshot: { createdBookId?: string } = {}
-        try {
-          snapshot = sessionData.session?.contextSnapshotJson ? JSON.parse(sessionData.session.contextSnapshotJson) as { createdBookId?: string } : {}
-        } catch {
-          snapshot = {}
-        }
+        setBookEntryStepIndex(5)
+        await fetch('/api/books/scan', { method: 'POST' }).catch(() => {})
         await loadBooks()
-        if (snapshot.createdBookId) {
-          setBookEntryStepIndex(5)
-          setExpandedBookId(snapshot.createdBookId)
-          toast.success('已创建新书并进入工作台')
-        }
+        toast.success('开书流程完成，请扫描确认新书已录入')
       } else {
         toast.error('新建一本书失败')
       }
@@ -571,6 +577,24 @@ export function BooksPage() {
     }
     await loadBooks()
   }, [toast, pendingBookEntrySessionId, sessionId, loadBooks])
+
+  const handleMarkComplete = useCallback(async () => {
+    if (!sessionId) return
+    try {
+      const res = await fetch(`/api/sessions/${sessionId}/complete`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || '标记完成失败')
+      toast.success('已标记完成，正在刷新数据…')
+      await loadBooks()
+      setSessionStatus('succeeded')
+      setProcessingChapterId(null)
+      localStorage.removeItem('fanqie:books:active-session')
+      localStorage.removeItem('fanqie:books:book-entry-session')
+      setPendingBookEntrySessionId(null)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '标记完成失败')
+    }
+  }, [sessionId, loadBooks, toast])
 
   const handleConfirmChapterStage = useCallback(async (chapter: ChapterRow) => {
     const targetStage = NEXT_STAGE[chapter.stage]
@@ -787,13 +811,27 @@ export function BooksPage() {
           <div style={{ display: 'grid', gap: spacing.md }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, flexWrap: 'wrap' }}>
               <div style={{ fontSize: fontSize.md, fontWeight: fontWeight.semibold }}>当前执行</div>
-              {sessionStatus === 'succeeded' && <Badge variant="success">✓ 已完成</Badge>}
-              {sessionStatus === 'failed' && <Badge variant="error">✕ 失败</Badge>}
-              {sessionStatus === 'running' && <Badge variant="warning">执行中</Badge>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: spacing.sm }}>
+                {sessionStatus === 'succeeded' && <Badge variant="success">✓ 已完成</Badge>}
+                {sessionStatus === 'failed' && <Badge variant="error">✕ 失败</Badge>}
+                {sessionStatus === 'running' && <Badge variant="warning">执行中</Badge>}
+                {sessionStatus === 'waiting-review' && <Badge variant="warning">待审阅</Badge>}
+                {sessionStatus === 'running' && (
+                  <Button variant="primary" size="sm" onClick={handleMarkComplete}>标记完成</Button>
+                )}
+              </div>
             </div>
             <div style={{ fontSize: fontSize.sm, color: 'var(--text-muted)' }}>
               {activeActionLabel || '处理中'}{processingChapter ? ` · 第${processingChapter.chapter_number}章 ${processingChapter.title}` : ''}
             </div>
+
+            {sessionStatus === 'waiting-review' && (
+              <ReviewCheckpointCard
+                sessionId={sessionId}
+                sessionStatus={sessionStatus}
+                onResolved={() => void loadBooks()}
+              />
+            )}
 
             {activeActionLabel === '新建一本书' && (
               <div style={{ display: 'grid', gap: spacing.md }}>

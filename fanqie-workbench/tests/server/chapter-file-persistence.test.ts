@@ -4,28 +4,26 @@ import { resolve } from 'node:path'
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { openDatabase } from '../../src/db/client.js'
 
-vi.mock('../../src/claude/claude-executor.js', () => {
-  const listeners = new Map<string, Array<(event: any) => void>>()
-  class MockClaudeSession {
-    on(event: string, cb: (event: any) => void) {
-      const arr = listeners.get(event) || []
-      arr.push(cb)
-      listeners.set(event, arr)
-      return this
+vi.mock('../../src/claude/terminal-runtime.js', () => ({
+  createTerminalRuntime: () => {
+    let sent = false
+    return {
+      ensureSession: async () => ({ sessionName: 'fanqie-book-book-1', created: true }),
+      sendText: async () => { sent = true },
+      capture: async () => sent ? '模拟章节处理输出\n❯\n[status]' : '',
+      interrupt: async () => {},
+      stop: async () => {},
     }
-    start() {
-      queueMicrotask(() => {
-        for (const cb of listeners.get('claude') || []) cb({ type: 'text', text: '模拟章节处理输出' })
-        for (const cb of listeners.get('claude') || []) cb({ type: 'done', exitCode: 0 })
-      })
-    }
+  },
+}))
+
+vi.mock('../../src/claude/claude-executor.js', () => ({
+  ClaudeSession: class MockClaudeSession {
+    on() { return this }
+    start() {}
     kill() {}
-  }
-  return {
-    ClaudeSession: MockClaudeSession,
-    executeClaudePrompt: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '模拟去AI/审稿输出', stderr: '' }),
-  }
-})
+  },
+}))
 
 async function createTempDatabasePath(name: string) {
   const dir = await mkdtemp(resolve(tmpdir(), 'fanqie-workbench-chapter-file-'))
@@ -37,7 +35,7 @@ describe('chapter file persistence', () => {
     delete process.env.WORKBENCH_DB
   })
 
-  it('writes generated writing-stage content back to the chapter source file', async () => {
+  it('records generated writing-stage terminal output in the chapter session stream', async () => {
     const databasePath = await createTempDatabasePath('chapter-file.sqlite')
     const chapterDir = await mkdtemp(resolve(tmpdir(), 'fanqie-workbench-chapter-dir-'))
     const sourcePath = resolve(chapterDir, '第001章_雾夜失踪.md')
@@ -65,12 +63,17 @@ describe('chapter file persistence', () => {
       payload: { kind: 'chapter', chapterId: 'chapter-1', currentSkill: 'chapter-pipeline' },
     })
     expect(response.statusCode).toBe(201)
+    const session = JSON.parse(response.body).session
 
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const sessionRes = await app.inject({ method: 'GET', url: `/api/sessions/${session.id}` })
+      if (JSON.parse(sessionRes.body).session.status === 'succeeded') break
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
 
-    const updatedContent = await readFile(sourcePath, 'utf8')
-    expect(updatedContent).toContain('模拟章节处理输出')
-    expect(updatedContent).not.toContain('旧内容')
+    const streamResponse = await app.inject({ method: 'GET', url: `/api/sessions/${session.id}/stream` })
+    expect(streamResponse.body).toContain('模拟章节处理输出')
+    await expect(readFile(sourcePath, 'utf8')).resolves.toContain('旧内容')
 
     await app.close()
   })

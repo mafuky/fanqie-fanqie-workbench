@@ -127,6 +127,7 @@ export function openDatabase(path: string) {
     books: hasTable(db, 'books'),
     chapters: hasTable(db, 'chapters'),
     sessions: hasTable(db, 'sessions'),
+    review_checkpoints: hasTable(db, 'review_checkpoints'),
   }
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')

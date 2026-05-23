@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { LiveLogPanel } from '../../src/web/components/live-log-panel.js'
 
 class MockEventSource {
@@ -42,6 +42,7 @@ describe('LiveLogPanel human-in-the-loop', () => {
   })
 
   afterEach(() => {
+    cleanup()
     vi.restoreAllMocks()
   })
 
@@ -131,6 +132,54 @@ describe('LiveLogPanel human-in-the-loop', () => {
     await waitFor(() => {
       expect(firstDone).not.toHaveBeenCalled()
       expect(secondDone).toHaveBeenCalledWith('succeeded')
+    })
+  })
+
+  it('shows answer submission error when answer request fails', async () => {
+    ;(globalThis as any).fetch = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: '回答失败' }) })
+    render(<LiveLogPanel taskId="session-1" streamBase="sessions" />)
+
+    const es = (globalThis as any).__lastEventSource as MockEventSource
+    es.emitQuestion({ toolUseId: 'session-1', question: '是否继续？', options: [] })
+
+    fireEvent.change(await screen.findByPlaceholderText('输入你的回答…'), { target: { value: '继续' } })
+    fireEvent.click(screen.getByText('提交回答'))
+
+    expect(await screen.findByText('回答失败')).toBeTruthy()
+  })
+
+  it('calls onAnswerSubmitted after a successful answer', async () => {
+    const onAnswerSubmitted = vi.fn()
+    render(<LiveLogPanel taskId="session-1" streamBase="sessions" onAnswerSubmitted={onAnswerSubmitted} />)
+
+    const es = (globalThis as any).__lastEventSource as MockEventSource
+    es.emitQuestion({ toolUseId: 'session-1', question: '是否继续？', options: [] })
+
+    fireEvent.change(await screen.findByPlaceholderText('输入你的回答…'), { target: { value: '继续' } })
+    fireEvent.click(screen.getByText('提交回答'))
+
+    await waitFor(() => expect(onAnswerSubmitted).toHaveBeenCalledWith('继续'))
+    expect(screen.queryByText('是否继续？')).toBeNull()
+  })
+
+  it('notifies parent when SSE emits permission-blocked event', async () => {
+    const onPermissionBlocked = vi.fn()
+    render(<LiveLogPanel taskId="session-1" streamBase="sessions" onPermissionBlocked={onPermissionBlocked} />)
+
+    const es = (globalThis as any).__lastEventSource as MockEventSource
+    es.listeners.get('permission-blocked')?.({ data: JSON.stringify({
+      kind: 'bash-permission',
+      title: 'Claude 正在等待 Bash 权限确认',
+      excerpt: 'Bash command\nDo you want to proceed?',
+      recommendation: '请确认命令内容。',
+      terminalInstruction: '请回到终端按 Enter。',
+    }) } as MessageEvent)
+
+    await waitFor(() => {
+      expect(onPermissionBlocked).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'bash-permission',
+        title: 'Claude 正在等待 Bash 权限确认',
+      }))
     })
   })
 })

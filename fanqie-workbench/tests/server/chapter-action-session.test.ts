@@ -10,11 +10,19 @@ vi.mock('../../src/claude/claude-executor.js', () => ({
     start() {}
     kill() {}
   },
-  executeClaudePrompt: vi.fn().mockResolvedValue({
-    exitCode: 0,
-    stdout: '已完成润色',
-    stderr: '',
-  }),
+}))
+
+vi.mock('../../src/claude/terminal-runtime.js', () => ({
+  createTerminalRuntime: () => {
+    let sent = false
+    return {
+      ensureSession: async () => ({ sessionName: 'fanqie-book-book-1', created: true }),
+      sendText: async () => { sent = true },
+      capture: async () => sent ? '已完成润色\n❯\n[status]' : '',
+      interrupt: async () => {},
+      stop: async () => {},
+    }
+  },
 }))
 
 async function createTempDatabasePath(name: string) {
@@ -59,11 +67,15 @@ describe('chapter action session', () => {
     expect(response.statusCode).toBe(201)
 
     const body = JSON.parse(response.body)
-    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const sessionRes = await app.inject({ method: 'GET', url: `/api/sessions/${body.session.id}` })
+      if (JSON.parse(sessionRes.body).session.status === 'succeeded') break
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
 
     const stream = await app.inject({ method: 'GET', url: `/api/sessions/${body.session.id}/stream` })
     expect(stream.body).toContain('已完成润色')
-    expect(stream.body).not.toContain('━━━ 阶段: 已初稿 → 已去AI ━━━')
 
     await app.close()
   })

@@ -7,6 +7,14 @@ type QuestionPayload = {
   options: Array<{ label: string; description?: string }>
 }
 
+type PermissionPromptPayload = {
+  kind: 'bash-permission'
+  title: string
+  excerpt: string
+  recommendation: string
+  terminalInstruction: string
+}
+
 type LogChunk = {
   id?: number
   stream: string
@@ -17,11 +25,15 @@ export function LiveLogPanel({
   taskId,
   onDone,
   onChunk,
+  onAnswerSubmitted,
+  onPermissionBlocked,
   streamBase = 'tasks',
 }: {
   taskId: string
   onDone?: (status: string) => void
   onChunk?: (chunk: LogChunk) => void
+  onAnswerSubmitted?: (answer: string) => void
+  onPermissionBlocked?: (payload: PermissionPromptPayload) => void
   streamBase?: 'tasks' | 'sessions'
 }) {
   const [lines, setLines] = useState<LogChunk[]>([])
@@ -29,19 +41,25 @@ export function LiveLogPanel({
   const [question, setQuestion] = useState<QuestionPayload | null>(null)
   const [customAnswer, setCustomAnswer] = useState('')
   const [answering, setAnswering] = useState(false)
+  const [answerError, setAnswerError] = useState<string | null>(null)
   const containerRef = useRef<HTMLPreElement>(null)
   const startRef = useRef(Date.now())
   const seenMessageIdsRef = useRef<Set<number>>(new Set())
   const onDoneRef = useRef(onDone)
   const onChunkRef = useRef(onChunk)
+  const onAnswerSubmittedRef = useRef(onAnswerSubmitted)
+  const onPermissionBlockedRef = useRef(onPermissionBlocked)
   onDoneRef.current = onDone
   onChunkRef.current = onChunk
+  onAnswerSubmittedRef.current = onAnswerSubmitted
+  onPermissionBlockedRef.current = onPermissionBlocked
 
   useEffect(() => {
     seenMessageIdsRef.current = new Set()
     setLines([])
     setQuestion(null)
     setCustomAnswer('')
+    setAnswerError(null)
     startRef.current = Date.now()
     setElapsed(0)
 
@@ -65,6 +83,11 @@ export function LiveLogPanel({
     eventSource.addEventListener('question', (event) => {
       const data = JSON.parse((event as MessageEvent).data)
       setQuestion(data)
+    })
+
+    eventSource.addEventListener('permission-blocked', (event) => {
+      const data = JSON.parse((event as MessageEvent).data) as PermissionPromptPayload
+      onPermissionBlockedRef.current?.(data)
     })
 
     eventSource.addEventListener('done', (event) => {
@@ -96,15 +119,21 @@ export function LiveLogPanel({
     if (!nextAnswer) return
 
     setAnswering(true)
+    setAnswerError(null)
     try {
       const res = await fetch(`/api/${streamBase}/${taskId}/answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answer: nextAnswer }),
       })
-      if (!res.ok) return
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAnswerError(data.error || '提交回答失败')
+        return
+      }
       setQuestion(null)
       setCustomAnswer('')
+      onAnswerSubmittedRef.current?.(nextAnswer)
     } finally {
       setAnswering(false)
     }
@@ -146,6 +175,7 @@ export function LiveLogPanel({
           <div style={{ fontSize: fontSize.md, fontWeight: 600, marginBottom: spacing.sm }}>
             {question.question}
           </div>
+          {answerError && <div style={{ color: 'var(--red)', fontSize: fontSize.sm, marginBottom: spacing.sm }}>{answerError}</div>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
             {question.options.map((option) => (
               <button

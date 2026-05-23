@@ -8,9 +8,13 @@ export type TmuxCommandResult = {
 
 export type TmuxRunner = (args: string[], options?: { cwd?: string }) => Promise<TmuxCommandResult>
 
+export type PermissionChoice = 'allow-once' | 'deny'
+
 export type TerminalRuntime = {
   ensureSession(input: { bookId: string }): Promise<{ sessionName: string; created: boolean }>
   sendText(input: { bookId: string; text: string }): Promise<void>
+  sendKeys(input: { bookId: string; keys: string[] }): Promise<void>
+  sendPermissionChoice(input: { bookId: string; choice: PermissionChoice }): Promise<void>
   capture(input: { bookId: string }): Promise<string>
   interrupt(input: { bookId: string }): Promise<void>
   stop(input: { bookId: string }): Promise<void>
@@ -62,6 +66,8 @@ export function createTerminalRuntime(input: { projectRoot: string; runner?: Tmu
         return { sessionName, created: false }
       }
 
+      await runner(['set-option', '-g', 'history-limit', '50000']).catch(() => {})
+
       const createResult = await runner([
         'new-session',
         '-d',
@@ -69,11 +75,19 @@ export function createTerminalRuntime(input: { projectRoot: string; runner?: Tmu
         sessionName,
         '-c',
         input.projectRoot,
-        'claude',
+        'claude', '--permission-mode', 'bypassPermissions',
       ])
 
       if (createResult.exitCode !== 0) {
         throw new Error(createResult.stderr || `tmux new-session failed with exit code ${createResult.exitCode}`)
+      }
+
+      for (let attempt = 0; attempt < 30; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        const probe = await runner(['capture-pane', '-t', sessionName, '-p', '-S', '-'])
+        if (probe.stdout.includes('~/') || probe.stdout.includes('❯') || probe.stdout.includes('>')) {
+          break
+        }
       }
 
       return { sessionName, created: true }
@@ -88,9 +102,28 @@ export function createTerminalRuntime(input: { projectRoot: string; runner?: Tmu
       }
     },
 
+    async sendKeys({ bookId, keys }) {
+      const sessionName = buildTmuxSessionName(bookId)
+      const result = await runner(['send-keys', '-t', sessionName, ...keys])
+
+      if (result.exitCode !== 0) {
+        throw new Error(result.stderr || `tmux send-keys failed with exit code ${result.exitCode}`)
+      }
+    },
+
+    async sendPermissionChoice({ bookId, choice }) {
+      const sessionName = buildTmuxSessionName(bookId)
+      const keys = choice === 'allow-once' ? ['Enter'] : ['Down', 'Down', 'Enter']
+      const result = await runner(['send-keys', '-t', sessionName, ...keys])
+
+      if (result.exitCode !== 0) {
+        throw new Error(result.stderr || `tmux send-keys failed with exit code ${result.exitCode}`)
+      }
+    },
+
     async capture({ bookId }) {
       const sessionName = buildTmuxSessionName(bookId)
-      const result = await runner(['capture-pane', '-t', sessionName, '-p'])
+      const result = await runner(['capture-pane', '-t', sessionName, '-p', '-S', '-'])
 
       if (result.exitCode !== 0) {
         throw new Error(result.stderr || `tmux capture-pane failed with exit code ${result.exitCode}`)

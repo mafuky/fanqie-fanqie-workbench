@@ -28,11 +28,15 @@ describe('App default page', () => {
     })) as any
   })
 
-  it('activates the books nav item by default', async () => {
+  it('activates the library nav item by default', async () => {
+    ;(globalThis as any).fetch = vi.fn(async (input: string) => {
+      if (input === '/api/books') return { ok: true, json: async () => ({ books: [] }) }
+      return { ok: true, json: async () => ({}) }
+    })
     const { App } = await import('../../src/web/app.js')
     render(<App />)
 
-    expect((await screen.findByRole('button', { name: '书籍管理' })).getAttribute('data-active')).toBe('true')
-    expect(screen.getByRole('button', { name: '自由会话' }).getAttribute('data-active')).toBe('false')
+    expect((await screen.findByRole('button', { name: '书库' })).getAttribute('data-active')).toBe('true')
+    expect(screen.getByRole('button', { name: '设置' }).getAttribute('data-active')).toBe('false')
   })
 })

@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { appendFileSync } from 'node:fs'
 import type Database from 'better-sqlite3'
 import { openDatabase } from '../db/client.js'
 import {
@@ -8,66 +8,57 @@ import {
   updateSessionPendingQuestion,
   updateSessionStatus,
 } from '../db/repositories/sessions-repo.js'
+import { storeSessionRuntimeOptions, clearSessionRuntimeOptions } from './session-runtime-options.js'
 import { getOrCreateEmitter } from './stream-capture.js'
+import { runTerminalCaptureLoop } from './terminal-capture-loop.js'
 import { createTerminalRuntime, type TerminalRuntime } from './terminal-runtime.js'
 
-const WORKSPACE_ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
+const WORKSPACE_ROOT = resolve(import.meta.dirname, '..', '..', '..')
 const BOOK_ENTRY_RUNTIME_BOOK_ID = 'book-entry'
 
 export type RunBookEntryTerminalSessionInput = {
   databasePath: string
   sessionId: string
-  command: string
+  prompt?: string
+  command?: string
   runtime?: TerminalRuntime
   captureIntervalMs?: number
   maxCaptureMs?: number
+  isComplete?: (capture: string) => boolean
 }
 
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function getDelta(previous: string, next: string) {
-  if (!next) return ''
-  if (!previous) return next
-  if (next.startsWith(previous)) return next.slice(previous.length)
-
-  const previousLines = previous.split('\n')
-  const nextLines = next.split('\n')
-  const maxOverlap = Math.min(previousLines.length, nextLines.length)
-
-  for (let size = maxOverlap; size > 0; size -= 1) {
-    const previousTail = previousLines.slice(previousLines.length - size).join('\n')
-    const nextHead = nextLines.slice(0, size).join('\n')
-    if (previousTail === nextHead) {
-      return nextLines.slice(size).join('\n')
-    }
-  }
-
-  return ''
-}
-
-function getPendingQuestion(capture: string) {
-  const lines = capture.split('\n').map((line) => line.trim()).filter(Boolean)
-  const tail = lines.slice(-8).join('\n')
-  return tail || '请继续补充这本书的方向。'
+function debugLog(msg: string) {
+  const p = resolve(import.meta.dirname, '..', '..', 'data', 'book-entry-debug.log')
+  try { appendFileSync(p, `${new Date().toISOString()} ${msg}\n`) } catch (e) { console.error('debugLog failed', e) }
 }
 
 export async function runBookEntryTerminalSession(input: RunBookEntryTerminalSessionInput): Promise<void> {
+  debugLog(`[called] sessionId=${input.sessionId} prompt=${input.prompt?.slice(0, 40)}`)
   const runtime = input.runtime ?? createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
   const emitter = getOrCreateEmitter(input.sessionId)
+  const command = input.command ?? input.prompt ?? ''
   let db: Database.Database | null = null
 
   try {
     db = openDatabase(input.databasePath)
     updateSessionStatus(db, input.sessionId, 'running', 'book-entry')
 
+    debugLog('[step] stopping old session...')
+    await runtime.stop({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID }).catch((e) => debugLog(`[stop-err] ${e}`))
+    debugLog('[step] ensuring new session...')
     const ensured = await runtime.ensureSession({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID })
+    debugLog(`[step] session ready: ${ensured.sessionName} created=${ensured.created}`)
     updateSessionMetadata(db, input.sessionId, {
       contextSnapshotJson: JSON.stringify({ tmuxSessionName: ensured.sessionName }),
     })
 
-    const inputContent = `${input.command}\n`
+    storeSessionRuntimeOptions(input.sessionId, {
+      runtimeBookId: BOOK_ENTRY_RUNTIME_BOOK_ID,
+      currentSkill: 'book-entry',
+      isComplete: input.isComplete,
+    })
+
+    const inputContent = `${command}\n`
     const inputMessageId = appendSessionMessage(db, input.sessionId, {
       role: 'user',
       stream: 'input',
@@ -75,37 +66,27 @@ export async function runBookEntryTerminalSession(input: RunBookEntryTerminalSes
     })
     emitter.emit('log', { id: inputMessageId, stream: 'input', chunk: inputContent })
 
-    await runtime.sendText({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID, text: input.command })
+    const baseline = await runtime.capture({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID })
+    debugLog(`[step] baseline captured: ${baseline.length} chars, ${baseline.split('\\n').length} lines`)
+    await runtime.sendText({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID, text: command })
+    debugLog(`[step] command sent, starting capture loop`)
 
-    const intervalMs = input.captureIntervalMs ?? 1000
-    const maxMs = input.maxCaptureMs ?? 180000
-    const startedAt = Date.now()
-    let previousCapture = ''
-    let latestCapture = ''
-
-    while (Date.now() - startedAt < maxMs) {
-      await wait(intervalMs)
-      latestCapture = await runtime.capture({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID })
-      const delta = getDelta(previousCapture, latestCapture)
-      previousCapture = latestCapture
-
-      if (delta.trim()) {
-        const outputMessageId = appendSessionMessage(db, input.sessionId, {
-          role: 'assistant',
-          stream: 'stdout',
-          content: delta,
-        })
-        emitter.emit('log', { id: outputMessageId, stream: 'stdout', chunk: delta })
-      }
-
-    }
-
-    const question = getPendingQuestion(latestCapture)
-    updateSessionPendingQuestion(db, input.sessionId, { question, options: [] })
-    updateSessionStatus(db, input.sessionId, 'waiting-answer', 'book-entry')
-    emitter.emit('question', { toolUseId: 'book-entry', question, options: [] })
+    const completion = await runTerminalCaptureLoop({
+      db,
+      sessionId: input.sessionId,
+      bookId: BOOK_ENTRY_RUNTIME_BOOK_ID,
+      runtime,
+      currentSkill: 'book-entry',
+      captureIntervalMs: input.captureIntervalMs,
+      maxCaptureMs: input.maxCaptureMs,
+      initialCapture: baseline,
+      isComplete: input.isComplete,
+    })
+    if (completion.status !== 'waiting-permission') clearSessionRuntimeOptions(input.sessionId)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    debugLog(`[ERROR] ${message}`)
+    if (error instanceof Error && error.stack) debugLog(`[STACK] ${error.stack}`)
 
     if (db) {
       try {
@@ -126,6 +107,7 @@ export async function runBookEntryTerminalSession(input: RunBookEntryTerminalSes
       } catch {}
     }
 
+    clearSessionRuntimeOptions(input.sessionId)
     emitter.emit('done', { status: 'failed' })
   } finally {
     if (db) {

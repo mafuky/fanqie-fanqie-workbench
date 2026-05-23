@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -186,20 +186,26 @@ describe('book sync persistence', () => {
   })
 
   it('preserves chapter stage and remote id when re-syncing an existing chapter', async () => {
-    const databasePath = await createTempDatabasePath('chapter-sync.sqlite')
+    const dir = await mkdtemp(resolve(tmpdir(), 'fanqie-workbench-chapter-sync-'))
+    const novelsRoot = resolve(dir, 'novels')
+    const bookRoot = resolve(novelsRoot, '测试书')
+    const chapterPath = resolve(bookRoot, '第001章_雾夜.md')
+    await mkdir(bookRoot, { recursive: true })
+    await writeFile(chapterPath, '# 第001章 雾夜\n\n正文\n', 'utf8')
+    const databasePath = resolve(dir, 'chapter-sync.sqlite')
 
-    await syncWorkspaceBooks({ novelsRoot: fixturesNovels, databasePath })
+    await syncWorkspaceBooks({ novelsRoot, databasePath })
 
     const db = new Database(databasePath)
     db.exec('ALTER TABLE chapters ADD COLUMN remote_id TEXT')
     db.close()
 
     const reopenedDb = openDatabase(databasePath)
-    const existingChapter = reopenedDb.prepare('SELECT id FROM chapters WHERE source_path = ?').get(resolve(fixturesNovels, '测试书', '第001章_雾夜.md')) as { id: string }
+    const existingChapter = reopenedDb.prepare('SELECT id FROM chapters ORDER BY chapter_number LIMIT 1').get() as { id: string }
     reopenedDb.prepare('UPDATE chapters SET stage = ?, remote_id = ? WHERE id = ?').run('已发布', 'remote-chapter-1', existingChapter.id)
     reopenedDb.close()
 
-    await syncWorkspaceBooks({ novelsRoot: fixturesNovels, databasePath })
+    await syncWorkspaceBooks({ novelsRoot, databasePath })
 
     const verifiedDb = openDatabase(databasePath)
     const syncedChapter = verifiedDb.prepare('SELECT stage, remote_id FROM chapters WHERE id = ?').get(existingChapter.id) as {
