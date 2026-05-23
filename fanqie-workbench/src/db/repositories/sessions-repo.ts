@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 
 export type SessionKind = 'prompt' | 'chapter' | 'account-action'
-export type SessionStatus = 'running' | 'waiting-answer' | 'paused' | 'succeeded' | 'failed'
+export type SessionStatus = 'running' | 'waiting-answer' | 'waiting-permission' | 'waiting-review' | 'paused' | 'succeeded' | 'failed'
 
 export type SessionRecord = {
   id: string

@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { randomUUID } from 'node:crypto'
-import { access, mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { syncWorkspaceBooks } from '../../db/repositories/books-repo.js'
 import { openDatabase } from '../../db/client.js'
 import {
   appendSessionMessage,
@@ -16,11 +15,14 @@ import {
   type SessionKind,
 } from '../../db/repositories/sessions-repo.js'
 import { runBookEntryTerminalSession } from '../../claude/book-entry-terminal-runner.js'
-import { buildChapterCommand, type ChapterCommandAction } from '../../claude/chapter-command-builder.js'
+import { buildActionCommand } from '../../actions/action-command-builder.js'
+import { normalizeActionKey } from '../../actions/action-registry.js'
 import { ClaudeSession, type ClaudeEvent } from '../../claude/claude-executor.js'
-import { getOrCreateEmitter, submitAnswer } from '../../claude/stream-capture.js'
+import { getOrCreateEmitter } from '../../claude/stream-capture.js'
+import { getSessionRuntimeOptions, clearSessionRuntimeOptions } from '../../claude/session-runtime-options.js'
 import { runTerminalSessionCommand } from '../../claude/terminal-session-runner.js'
-import { createTerminalRuntime } from '../../claude/terminal-runtime.js'
+import { createTerminalRuntime, type PermissionChoice } from '../../claude/terminal-runtime.js'
+import { runTerminalCaptureLoop } from '../../claude/terminal-capture-loop.js'
 
 function getDatabasePath() {
   return process.env.WORKBENCH_DB || 'data/workbench.sqlite'
@@ -28,115 +30,8 @@ function getDatabasePath() {
 
 const WORKSPACE_ROOT = resolve(import.meta.dirname, '..', '..', '..', '..')
 
-function stripMarkdownEmphasis(value: string) {
-  return value.replace(/^[\s#>*-]+/, '').replace(/^主推书名[:：]\s*/, '').replace(/^推荐主书名[:：]\s*/, '').replace(/^书名[:：]\s*/, '').replace(/[*`《》]/g, '').trim()
-}
-
-function isGeneratedPlaceholder(value: string) {
-  return !value || /[<>]/.test(value) || /最终书名|章节名|200-400字简介|分卷或主线大纲/.test(value)
-}
-
-function parseGeneratedBook(stdout: string) {
-  const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  const titleLine = lines.find((line) => /^#{0,6}\s*(主推书名|推荐主书名|书名)[:：]/.test(line))
-  const title = titleLine ? stripMarkdownEmphasis(titleLine.split(/[:：]/).slice(1).join('：')) : ''
-  const summary = stdout.match(/简介[:：]\s*([\s\S]*?)(?=\n\s*大纲[:：]|\n\s*章节目录[:：]|$)/)?.[1]?.trim() || ''
-  const outline = stdout.match(/大纲[:：]\s*([\s\S]*?)(?=\n\s*章节目录[:：]|$)/)?.[1]?.trim() || ''
-  const chapterTitles = Array.from(stdout.matchAll(/第\s*(\d+)\s*章[：:_\s]+([^\n]+)/g))
-    .map((match) => ({
-      chapterNumber: Number(match[1]),
-      title: stripMarkdownEmphasis(match[2]).replace(/[，。；、].*$/, '').trim(),
-    }))
-    .filter((chapter) => chapter.chapterNumber > 0 && !isGeneratedPlaceholder(chapter.title))
-    .filter((chapter, index, chapters) => chapters.findIndex((item) => item.chapterNumber === chapter.chapterNumber) === index)
-  const isComplete = !isGeneratedPlaceholder(title)
-    && !isGeneratedPlaceholder(summary)
-    && !isGeneratedPlaceholder(outline)
-    && /简介[:：]/.test(stdout)
-    && /大纲[:：]/.test(stdout)
-    && /章节目录[:：]/.test(stdout)
-    && chapterTitles.length > 0
-
-  return {
-    title,
-    summary,
-    outline,
-    chapterTitles,
-    isComplete,
-  }
-}
-
-async function pathExists(path: string) {
-  try {
-    await access(path)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function getUniqueBookRootPath(title: string, dbPath: string) {
-  const safeTitle = title.replace(/[\\/:*?"<>|]/g, '-').trim() || '未命名作品'
-  const db = openDatabase(dbPath)
-  try {
-    for (let index = 0; index < 1000; index += 1) {
-      const suffix = index === 0 ? '' : `-${index + 1}`
-      const rootPath = resolve(WORKSPACE_ROOT, 'novels', `${safeTitle}${suffix}`)
-      const existing = db.prepare('SELECT id FROM books WHERE root_path = ?').get(rootPath)
-      if (!existing && !(await pathExists(rootPath))) return rootPath
-    }
-  } finally {
-    db.close()
-  }
-  return resolve(WORKSPACE_ROOT, 'novels', `${safeTitle}-${randomUUID().slice(0, 8)}`)
-}
-
-async function materializeGeneratedBook(stdout: string, dbPath: string) {
-  const generated = parseGeneratedBook(stdout)
-  if (!generated.isComplete) {
-    throw new Error('开书资料不完整，无法创建书籍文件')
-  }
-  const rootPath = await getUniqueBookRootPath(generated.title, dbPath)
-  const settingsPath = resolve(rootPath, '设定')
-  const outlinePath = resolve(rootPath, '大纲')
-  const chaptersPath = resolve(rootPath, '正文')
-  const trackingPath = resolve(rootPath, '追踪')
-  const referencePath = resolve(rootPath, '参考资料')
-  await mkdir(settingsPath, { recursive: true })
-  await mkdir(outlinePath, { recursive: true })
-  await mkdir(chaptersPath, { recursive: true })
-  await mkdir(trackingPath, { recursive: true })
-  await mkdir(resolve(rootPath, '对标'), { recursive: true })
-  await mkdir(referencePath, { recursive: true })
-
-  await writeFile(resolve(outlinePath, '大纲.md'), `# ${generated.title} 大纲\n\n${generated.outline}\n`, 'utf8')
-  await writeFile(resolve(trackingPath, '上下文.md'), `# ${generated.title} 上下文\n\n- 当前位置：开书完成，待写第1章\n- 已规划章节：${generated.chapterTitles.length} 章\n- 简介：${generated.summary}\n`, 'utf8')
-  await writeFile(resolve(trackingPath, '伏笔.md'), '# 伏笔\n\n| 伏笔 | 埋设章节 | 状态 | 回收计划 |\n| --- | --- | --- | --- |\n', 'utf8')
-  await writeFile(resolve(trackingPath, '时间线.md'), '# 时间线\n\n| 顺序 | 章节 | 事件 |\n| --- | --- | --- |\n', 'utf8')
-
-  const bookId = randomUUID()
-  const db = openDatabase(dbPath)
-  try {
-    db.prepare('INSERT INTO books (id, title, root_path, account_id) VALUES (?, ?, ?, NULL)').run(bookId, generated.title, rootPath)
-
-    for (const chapter of generated.chapterTitles) {
-      const chapterId = randomUUID()
-      const safeChapterTitle = chapter.title.replace(/[\\/:*?"<>|]/g, '-').trim() || `第${chapter.chapterNumber}章`
-      const fileName = `第${String(chapter.chapterNumber).padStart(3, '0')}章_${safeChapterTitle}.md`
-      const sourcePath = resolve(chaptersPath, fileName)
-      await writeFile(sourcePath, `# 第${chapter.chapterNumber}章 ${chapter.title}\n\n`, 'utf8')
-      db.prepare('INSERT INTO chapters (id, book_id, chapter_number, title, source_path, stage) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(chapterId, bookId, chapter.chapterNumber, chapter.title, sourcePath, '待写作')
-    }
-  } finally {
-    db.close()
-  }
-
-  return { bookId, title: generated.title, rootPath }
-}
-
 function buildBookEntryCommand(idea: string) {
-  return `/story-long-write 帮我开书：${idea}\n请使用 oh-story-claudecode 的长篇写作流程，在当前工作区 novels/ 下创建标准长篇项目结构；需要我补充信息时直接提问。`
+  return `/story-long-write 帮我开书：${idea}，请在 novels/ 下创建标准长篇项目结构`
 }
 
 function appendAndEmitSessionMessage(
@@ -153,79 +48,46 @@ function runPromptSession(sessionId: string, prompt: string, currentSkill: strin
   const emitter = getOrCreateEmitter(sessionId)
   const runDb = openDatabase(getDatabasePath())
   const session = new ClaudeSession()
-  let stdout = ''
-  let stderr = ''
   let finished = false
 
-  const finish = async (exitCode: number | null) => {
-    if (finished) return
-    finished = true
-
-    if (exitCode !== 0) {
-      updateSessionStatus(runDb, sessionId, 'failed', currentSkill ?? null)
-      emitter.emit('done', { status: 'failed' })
-      runDb.close()
-      return
-    }
-
-    updateSessionStatus(runDb, sessionId, 'succeeded', currentSkill ?? null)
-    emitter.emit('done', { status: 'succeeded' })
-    runDb.close()
-  }
-
   session.on('claude', (event: ClaudeEvent) => {
-    void (async () => {
-      switch (event.type) {
-        case 'text': {
-          stdout += event.text
-          appendAndEmitSessionMessage(runDb, sessionId, emitter, { role: 'assistant', stream: 'stdout', content: event.text })
-          break
-        }
-        case 'tool_use': {
-          const msg = `\n[tool: ${event.name}]\n`
-          stdout += msg
-          appendAndEmitSessionMessage(runDb, sessionId, emitter, { role: 'tool', stream: 'stdout', content: msg })
-          break
-        }
-        case 'question': {
-          if (finished) break
-          finished = true
-          const question = event.question || stdout.trim() || '请继续补充这本书的方向。'
-          updateSessionStatus(runDb, sessionId, 'waiting-answer')
-          updateSessionPendingQuestion(runDb, sessionId, { question, options: event.options })
-          emitter.emit('question', { toolUseId: event.toolUseId, question, options: event.options })
-          session.kill()
-          runDb.close()
-          break
-        }
-        case 'error': {
-          stderr += event.message
-          appendAndEmitSessionMessage(runDb, sessionId, emitter, { role: 'assistant', stream: 'stderr', content: event.message })
-          break
-        }
-        case 'done': {
-          await finish(event.exitCode)
-          break
-        }
+    switch (event.type) {
+      case 'text': {
+        appendAndEmitSessionMessage(runDb, sessionId, emitter, { role: 'assistant', stream: 'stdout', content: event.text })
+        break
       }
-    })().catch((error) => {
-      appendAndEmitSessionMessage(runDb, sessionId, emitter, { role: 'assistant', stream: 'stderr', content: String(error) })
-      updateSessionStatus(runDb, sessionId, 'failed', currentSkill ?? null)
-      emitter.emit('done', { status: 'failed' })
-      if (!finished) runDb.close()
-      finished = true
-    })
+      case 'tool_use': {
+        appendAndEmitSessionMessage(runDb, sessionId, emitter, { role: 'tool', stream: 'stdout', content: `\n[tool: ${event.name}]\n` })
+        break
+      }
+      case 'question': {
+        if (finished) break
+        finished = true
+        const question = event.question || '请继续补充这本书的方向。'
+        updateSessionStatus(runDb, sessionId, 'waiting-answer')
+        updateSessionPendingQuestion(runDb, sessionId, { question, options: event.options })
+        emitter.emit('question', { toolUseId: event.toolUseId, question, options: event.options })
+        session.kill()
+        runDb.close()
+        break
+      }
+      case 'error': {
+        appendAndEmitSessionMessage(runDb, sessionId, emitter, { role: 'assistant', stream: 'stderr', content: event.message })
+        break
+      }
+      case 'done': {
+        if (finished) return
+        finished = true
+        const status = event.exitCode === 0 ? 'succeeded' : 'failed'
+        updateSessionStatus(runDb, sessionId, status, currentSkill ?? null)
+        emitter.emit('done', { status })
+        runDb.close()
+        break
+      }
+    }
   })
 
   session.start(prompt)
-}
-
-const chapterActionMap: Record<string, ChapterCommandAction> = {
-  'chapter-polish': 'chapter-polish',
-  'chapter-deslop': 'chapter-deslop',
-  'chapter-review': 'chapter-review',
-  'chapter-rewrite': 'chapter-rewrite',
-  'chapter-pipeline': 'chapter-write',
 }
 
 export async function registerSessionRoutes(app: FastifyInstance) {
@@ -254,8 +116,6 @@ export async function registerSessionRoutes(app: FastifyInstance) {
           databasePath: getDatabasePath(),
           sessionId: session.id,
           prompt: sessionPrompt,
-          isComplete: (stdout) => parseGeneratedBook(stdout).isComplete,
-          materialize: materializeGeneratedBook,
         })
       } else {
         runPromptSession(session.id, sessionPrompt, currentSkill)
@@ -283,9 +143,9 @@ export async function registerSessionRoutes(app: FastifyInstance) {
       } | undefined
 
       if (chapter) {
-        const action = chapterActionMap[currentSkill || 'chapter-pipeline'] ?? 'chapter-write'
-        const command = buildChapterCommand({
-          action,
+        const actionKey = normalizeActionKey(currentSkill || 'chapter-pipeline')
+        const command = buildActionCommand({
+          actionKey,
           bookTitle: chapter.book_title,
           bookRoot: chapter.book_root,
           chapterNumber: chapter.chapter_number,
@@ -298,6 +158,7 @@ export async function registerSessionRoutes(app: FastifyInstance) {
           sessionId: session.id,
           bookId: chapter.book_id,
           command,
+          currentSkill: currentSkill ?? undefined,
         })
         runDb.close()
       } else {
@@ -362,6 +223,15 @@ export async function registerSessionRoutes(app: FastifyInstance) {
       reply.raw.write(`event: question\ndata: ${session.pendingQuestionJson}\n\n`)
     }
 
+    if (session.contextSnapshotJson) {
+      try {
+        const snapshot = JSON.parse(session.contextSnapshotJson) as { permissionPrompt?: unknown }
+        if (snapshot.permissionPrompt && session.status === 'waiting-permission') {
+          reply.raw.write(`event: permission-blocked\ndata: ${JSON.stringify(snapshot.permissionPrompt)}\n\n`)
+        }
+      } catch {}
+    }
+
     if (session.status === 'succeeded' || session.status === 'failed') {
       reply.raw.write(`event: done\ndata: ${JSON.stringify({ status: session.status })}\n\n`)
       reply.raw.end()
@@ -378,6 +248,9 @@ export async function registerSessionRoutes(app: FastifyInstance) {
     const onQuestion = (data: { toolUseId: string; question: string; options: any[] }) => {
       reply.raw.write(`event: question\ndata: ${JSON.stringify(data)}\n\n`)
     }
+    const onPermissionBlocked = (data: any) => {
+      reply.raw.write(`event: permission-blocked\ndata: ${JSON.stringify(data)}\n\n`)
+    }
     const onDone = (data: { status: string }) => {
       reply.raw.write(`event: done\ndata: ${JSON.stringify(data)}\n\n`)
       reply.raw.end()
@@ -386,26 +259,137 @@ export async function registerSessionRoutes(app: FastifyInstance) {
     const cleanup = () => {
       emitter.off('log', onLog)
       emitter.off('question', onQuestion)
+      emitter.off('permission-blocked', onPermissionBlocked)
       emitter.off('done', onDone)
     }
 
     emitter.on('log', onLog)
     emitter.on('question', onQuestion)
+    emitter.on('permission-blocked', onPermissionBlocked)
     emitter.on('done', onDone)
     request.raw.on('close', cleanup)
+  })
+
+  app.post<{
+    Params: { sessionId: string }
+    Body: { choice?: PermissionChoice }
+  }>('/api/sessions/:sessionId/permission', async (request, reply) => {
+    const { sessionId } = request.params
+    const { choice } = request.body || {} as any
+    if (choice !== 'allow-once' && choice !== 'deny') return reply.code(400).send({ error: 'choice must be allow-once or deny' })
+
+    const db = openDatabase(getDatabasePath())
+    const session = getSessionById(db, sessionId)
+    if (!session) {
+      db.close()
+      return reply.code(404).send({ error: 'session not found' })
+    }
+    const runtimeOptions = getSessionRuntimeOptions(sessionId)
+    const runtimeBookId = runtimeOptions?.runtimeBookId ?? session.bookId
+    if (!runtimeBookId) {
+      db.close()
+      return reply.code(400).send({ error: 'session has no terminal runtime' })
+    }
+    if (session.status !== 'waiting-permission') {
+      db.close()
+      return reply.code(409).send({ error: 'session is not waiting for permission' })
+    }
+
+    const runtime = createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
+    await runtime.sendPermissionChoice({ bookId: runtimeBookId, choice })
+    appendSessionMessage(db, sessionId, {
+      role: 'user',
+      stream: 'permission',
+      content: choice === 'allow-once' ? 'allowed permission once' : 'denied permission',
+    })
+
+    if (choice === 'deny') {
+      clearSessionRuntimeOptions(sessionId)
+      updateSessionMetadata(db, sessionId, { contextSnapshotJson: null })
+      updateSessionStatus(db, sessionId, 'failed', session.currentSkill)
+      db.close()
+      getOrCreateEmitter(sessionId).emit('done', { status: 'failed' })
+      return { handled: true }
+    }
+
+    updateSessionMetadata(db, sessionId, { contextSnapshotJson: null })
+    updateSessionStatus(db, sessionId, 'running', session.currentSkill)
+    db.close()
+
+    void (async () => {
+      const captureDb = openDatabase(getDatabasePath())
+      try {
+        const completion = await runTerminalCaptureLoop({
+          db: captureDb,
+          sessionId,
+          bookId: runtimeBookId,
+          runtime,
+          currentSkill: runtimeOptions?.currentSkill ?? session.currentSkill,
+          isComplete: runtimeOptions?.isComplete ?? (runtimeOptions?.completeOnFirstCapture ? ((capture) => !!capture.trim()) : undefined),
+          completeStatus: runtimeOptions?.completeStatus,
+          beforeComplete: runtimeOptions?.beforeComplete
+            ? (capture) => runtimeOptions.beforeComplete!({ db: captureDb, capture, sessionId, bookId: runtimeBookId })
+            : undefined,
+        })
+        if (completion.status !== 'waiting-permission') clearSessionRuntimeOptions(sessionId)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        appendSessionMessage(captureDb, sessionId, { role: 'assistant', stream: 'stderr', content: message })
+        updateSessionStatus(captureDb, sessionId, 'failed', session.currentSkill)
+        clearSessionRuntimeOptions(sessionId)
+        getOrCreateEmitter(sessionId).emit('done', { status: 'failed' })
+      } finally {
+        captureDb.close()
+      }
+    })()
+
+    return { handled: true }
   })
 
   app.post<{ Params: { sessionId: string } }>('/api/sessions/:sessionId/interrupt', async (request, reply) => {
     const db = openDatabase(getDatabasePath())
     const session = getSessionById(db, request.params.sessionId)
+
+    if (!session) {
+      db.close()
+      return reply.code(404).send({ error: 'session not found' })
+    }
+
+    const runtimeBookId = getSessionRuntimeOptions(request.params.sessionId)?.runtimeBookId ?? session.bookId
+    if (runtimeBookId) {
+      const runtime = createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
+      await runtime.interrupt({ bookId: runtimeBookId }).catch(() => {})
+    }
+
+    clearSessionRuntimeOptions(request.params.sessionId)
+    updateSessionStatus(db, request.params.sessionId, 'failed', session.currentSkill)
+    appendSessionMessage(db, request.params.sessionId, { role: 'assistant', stream: 'stderr', content: 'session interrupted by user' })
     db.close()
-
-    if (!session) return reply.code(404).send({ error: 'session not found' })
-    if (!session.bookId) return reply.code(400).send({ error: 'session has no bookId' })
-
-    const runtime = createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
-    await runtime.interrupt({ bookId: session.bookId })
+    getOrCreateEmitter(request.params.sessionId).emit('done', { status: 'failed' })
     return { interrupted: true }
+  })
+
+  app.post<{ Params: { sessionId: string } }>('/api/sessions/:sessionId/complete', async (request, reply) => {
+    const { sessionId } = request.params
+    const db = openDatabase(getDatabasePath())
+    const session = getSessionById(db, sessionId)
+    if (!session) {
+      db.close()
+      return reply.code(404).send({ error: 'session not found' })
+    }
+    if (session.status === 'succeeded' || session.status === 'failed') {
+      db.close()
+      return reply.code(409).send({ error: 'session already finished' })
+    }
+
+    clearSessionRuntimeOptions(sessionId)
+    updateSessionStatus(db, sessionId, 'succeeded', session.currentSkill)
+    appendSessionMessage(db, sessionId, { role: 'assistant', stream: 'stdout', content: '\n[用户标记完成]' })
+    db.close()
+    getOrCreateEmitter(sessionId).emit('done', { status: 'succeeded' })
+
+    const scanResult = await syncWorkspaceBooks({ novelsRoot: resolve(WORKSPACE_ROOT, 'novels'), databasePath: getDatabasePath() })
+    return { completed: true, scan: scanResult }
   })
 
   app.post<{ Params: { sessionId: string } }>('/api/sessions/:sessionId/compress', async (request, reply) => {
@@ -442,29 +426,57 @@ export async function registerSessionRoutes(app: FastifyInstance) {
       db.close()
       return reply.code(404).send({ error: 'session not found' })
     }
-
-    const ok = submitAnswer(sessionId, answer)
-    if (ok) {
+    if (session.status !== 'waiting-answer') {
       db.close()
-      return { answered: true }
+      return reply.code(409).send({ error: 'session is not waiting for an answer' })
     }
 
-    if (session.currentSkill === 'book-entry' && session.status === 'waiting-answer') {
-      appendSessionMessage(db, sessionId, { role: 'user', stream: 'question', content: answer })
-      updateSessionPendingQuestion(db, sessionId, null)
-      updateSessionStatus(db, sessionId, 'running', session.currentSkill)
+    const runtimeBookId = getSessionRuntimeOptions(sessionId)?.runtimeBookId ?? session.bookId
+    if (!runtimeBookId) {
       db.close()
-      void runBookEntryTerminalSession({
-        databasePath: getDatabasePath(),
-        sessionId,
-        prompt: answer,
-        isComplete: (stdout) => parseGeneratedBook(stdout).isComplete,
-        materialize: materializeGeneratedBook,
-      })
-      return { answered: true }
+      return reply.code(400).send({ error: 'session has no terminal runtime' })
     }
 
+    const runtime = createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
+
+    const optionMatch = answer.match(/^(\d+)\./)
+    if (optionMatch) {
+      const optionNumber = parseInt(optionMatch[1])
+      const keys: string[] = []
+      for (let i = 1; i < optionNumber; i++) keys.push('Down')
+      keys.push('Enter')
+      await runtime.sendKeys({ bookId: runtimeBookId, keys })
+    } else {
+      await runtime.sendText({ bookId: runtimeBookId, text: answer })
+    }
+
+    appendSessionMessage(db, sessionId, { role: 'user', stream: 'question', content: answer })
+    updateSessionPendingQuestion(db, sessionId, null)
+    updateSessionStatus(db, sessionId, 'running', session.currentSkill)
     db.close()
-    return reply.code(404).send({ error: 'no pending question for this session' })
+
+    void (async () => {
+      const captureDb = openDatabase(getDatabasePath())
+      try {
+        const baseline = await runtime.capture({ bookId: runtimeBookId })
+        await runTerminalCaptureLoop({
+          db: captureDb,
+          sessionId,
+          bookId: runtimeBookId,
+          runtime,
+          currentSkill: session.currentSkill,
+          initialCapture: baseline,
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        appendSessionMessage(captureDb, sessionId, { role: 'assistant', stream: 'stderr', content: message })
+        updateSessionStatus(captureDb, sessionId, 'failed', session.currentSkill)
+        getOrCreateEmitter(sessionId).emit('done', { status: 'failed' })
+      } finally {
+        captureDb.close()
+      }
+    })()
+
+    return { answered: true }
   })
 }

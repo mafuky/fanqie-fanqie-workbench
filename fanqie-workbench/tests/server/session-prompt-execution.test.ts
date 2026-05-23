@@ -5,8 +5,21 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('../../src/claude/claude-executor.js', () => {
   class MockClaudeSession {
-    on() { return this }
-    start() {}
+    private handlers = new Map<string, Array<(event: any) => void>>()
+    on(eventName: string, handler: (event: any) => void) {
+      const handlers = this.handlers.get(eventName) || []
+      handlers.push(handler)
+      this.handlers.set(eventName, handlers)
+      return this
+    }
+    start() {
+      queueMicrotask(() => {
+        for (const handler of this.handlers.get('claude') || []) {
+          handler({ type: 'text', text: '模拟写作输出' })
+          handler({ type: 'done', exitCode: 0 })
+        }
+      })
+    }
     kill() {}
   }
   return {

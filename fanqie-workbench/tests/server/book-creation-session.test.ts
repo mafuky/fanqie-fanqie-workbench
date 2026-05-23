@@ -1,32 +1,28 @@
-import { mkdtemp, readFile, stat } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../src/claude/claude-executor.js', () => ({
   ClaudeSession: class MockClaudeSession {
-    private handlers = new Map<string, Array<(event: any) => void>>()
-    on(eventName: string, handler: (event: any) => void) {
-      const handlers = this.handlers.get(eventName) || []
-      handlers.push(handler)
-      this.handlers.set(eventName, handlers)
-      return this
-    }
-    start() {
-      queueMicrotask(() => {
-        for (const handler of this.handlers.get('claude') || []) {
-          handler({ type: 'text', text: '书名：雾港疑局\n简介：……\n大纲：……\n章节目录：第1章 雾夜失踪' })
-          handler({ type: 'done', exitCode: 0 })
-        }
-      })
-    }
+    on() { return this }
+    start() {}
     kill() {}
   },
-  executeClaudePrompt: vi.fn().mockResolvedValue({
-    exitCode: 0,
-    stdout: '书名：雾港疑局\n简介：……\n大纲：……\n章节目录：第1章 雾夜失踪',
-    stderr: '',
-  }),
+}))
+
+let mockCaptureText = '开书中…'
+vi.mock('../../src/claude/terminal-runtime.js', () => ({
+  createTerminalRuntime: () => {
+    let sent = false
+    return {
+      ensureSession: async () => ({ sessionName: 'fanqie-book-book-entry', created: true }),
+      sendText: async () => { sent = true },
+      capture: async () => sent ? mockCaptureText : '',
+      interrupt: async () => {},
+      stop: async () => {},
+    }
+  },
 }))
 
 async function createTempDatabasePath(name: string) {
@@ -34,25 +30,13 @@ async function createTempDatabasePath(name: string) {
   return resolve(dir, name)
 }
 
-async function waitForBooks(app: Awaited<ReturnType<typeof import('../../src/server/app.js').buildServer>>, predicate: (books: Array<{ title: string; root_path: string }>) => boolean) {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const booksResponse = await app.inject({ method: 'GET', url: '/api/books' })
-    const booksBody = JSON.parse(booksResponse.body)
-    const books = booksBody.books as Array<{ title: string; root_path: string }>
-    if (predicate(books)) return books
-    await new Promise((resolve) => setTimeout(resolve, 0))
-  }
-  const booksResponse = await app.inject({ method: 'GET', url: '/api/books' })
-  const booksBody = JSON.parse(booksResponse.body)
-  return booksBody.books as Array<{ title: string; root_path: string }>
-}
-
 describe('book creation session', () => {
   afterEach(() => {
     delete process.env.WORKBENCH_DB
+    mockCaptureText = '开书中…'
   })
 
-  it('creates a book-entry session, streams the generated plan, and materializes a book', async () => {
+  it('creates a book-entry session and runs it via terminal runtime', async () => {
     process.env.WORKBENCH_DB = await createTempDatabasePath('book-create.sqlite')
     const { buildServer } = await import('../../src/server/app.js')
     const app = await buildServer()
@@ -63,84 +47,46 @@ describe('book creation session', () => {
       payload: {
         kind: 'prompt',
         currentSkill: 'book-entry',
-        prompt: '帮我开一本现代悬疑小说',
+        idea: '现代悬疑复仇文',
       },
     })
 
     expect(response.statusCode).toBe(201)
     const body = JSON.parse(response.body)
     expect(body.session.currentSkill).toBe('book-entry')
-
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    const stream = await app.inject({ method: 'GET', url: `/api/sessions/${body.session.id}/stream` })
-    expect(stream.body).toContain('书名：雾港疑局')
-    expect(stream.body).toContain('章节目录')
-
-    const booksResponse = await app.inject({ method: 'GET', url: '/api/books' })
-    const booksBody = JSON.parse(booksResponse.body)
-    expect(booksBody.books).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ title: '雾港疑局' }),
-      ]),
-    )
-
-    const bookId = booksBody.books.find((book: { title: string }) => book.title === '雾港疑局')?.id
-    expect(bookId).toBeTruthy()
-
-    const bookDetailResponse = await app.inject({ method: 'GET', url: `/api/books/${bookId}` })
-    const bookDetail = JSON.parse(bookDetailResponse.body)
-    const bookRoot = booksBody.books.find((book: { title: string }) => book.title === '雾港疑局')?.root_path
-    expect(bookRoot).toBeTruthy()
-    const chapterPath = resolve(bookRoot, '正文', '第001章_雾夜失踪.md')
-
-    expect(bookDetail.chapters).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ chapter_number: 1, title: '雾夜失踪', source_path: chapterPath }),
-      ]),
-    )
-
-    await expect(stat(resolve(bookRoot, '设定'))).resolves.toMatchObject({})
-    await expect(stat(resolve(bookRoot, '大纲'))).resolves.toMatchObject({})
-    await expect(stat(resolve(bookRoot, '正文'))).resolves.toMatchObject({})
-    await expect(stat(resolve(bookRoot, '追踪'))).resolves.toMatchObject({})
-    await expect(stat(resolve(bookRoot, '对标'))).resolves.toMatchObject({})
-    await expect(stat(resolve(bookRoot, '参考资料'))).resolves.toMatchObject({})
-    await expect(readFile(chapterPath, 'utf8')).resolves.toContain('# 第1章 雾夜失踪')
-    await expect(readFile(resolve(bookRoot, '大纲', '大纲.md'), 'utf8')).resolves.toContain('雾港疑局')
-    await expect(readFile(resolve(bookRoot, '追踪', '上下文.md'), 'utf8')).resolves.toContain('雾港疑局')
-    await expect(readFile(resolve(bookRoot, '追踪', '伏笔.md'), 'utf8')).resolves.toContain('伏笔')
-    await expect(readFile(resolve(bookRoot, '追踪', '时间线.md'), 'utf8')).resolves.toContain('时间线')
+    expect(body.session.id).toBeTruthy()
 
     await app.close()
   })
 
-  it('creates a distinct new book when the generated title already exists on disk', async () => {
-    process.env.WORKBENCH_DB = await createTempDatabasePath('book-create-existing.sqlite')
-    const fs = await import('node:fs/promises')
-    const path = await import('node:path')
-    const root = path.resolve('/Users/huangzhipeng/Desktop/tomato 写作/novels/雾港疑局')
-    await fs.mkdir(root, { recursive: true })
-    await fs.writeFile(path.resolve(root, '第001章_雾夜失踪.md'), '# 已有内容\n', 'utf8')
-
+  it('allows manual completion of a book-entry session with auto-scan', async () => {
+    process.env.WORKBENCH_DB = await createTempDatabasePath('book-complete.sqlite')
     const { buildServer } = await import('../../src/server/app.js')
     const app = await buildServer()
 
-    const response = await app.inject({
+    const createResponse = await app.inject({
       method: 'POST',
       url: '/api/sessions',
       payload: {
         kind: 'prompt',
         currentSkill: 'book-entry',
-        prompt: '帮我再开一本同名现代悬疑小说',
+        idea: '都市复仇',
       },
     })
+    const sessionId = JSON.parse(createResponse.body).session.id
 
-    expect(response.statusCode).toBe(201)
-    const books = await waitForBooks(app, (items) => items.some((book) => book.title === '雾港疑局'))
-    const matchingBooks = books.filter((book) => book.title === '雾港疑局')
-    expect(matchingBooks.length).toBeGreaterThanOrEqual(1)
-    expect(new Set(matchingBooks.map((book) => book.root_path)).size).toBe(matchingBooks.length)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const completeResponse = await app.inject({
+      method: 'POST',
+      url: `/api/sessions/${sessionId}/complete`,
+    })
+    expect(completeResponse.statusCode).toBe(200)
+    const completeBody = JSON.parse(completeResponse.body)
+    expect(completeBody.completed).toBe(true)
+
+    const sessionResponse = await app.inject({ method: 'GET', url: `/api/sessions/${sessionId}` })
+    expect(JSON.parse(sessionResponse.body).session.status).toBe('succeeded')
 
     await app.close()
   })

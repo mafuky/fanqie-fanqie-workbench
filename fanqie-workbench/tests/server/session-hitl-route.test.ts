@@ -40,7 +40,7 @@ describe('session human-in-the-loop route', () => {
       payload: { answer: '悬疑推理' },
     })
 
-    expect(answerResponse.statusCode).toBe(404)
+    expect(answerResponse.statusCode).toBe(409)
 
     await app.close()
     delete process.env.WORKBENCH_DB

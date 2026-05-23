@@ -242,7 +242,7 @@ export async function registerBookRoutes(app: FastifyInstance) {
       const activeSession = db.prepare(
         `SELECT id, chapter_id
          FROM sessions
-         WHERE book_id = ? AND status IN ('running', 'waiting-answer')
+         WHERE book_id = ? AND status IN ('running', 'waiting-answer', 'waiting-review')
          ORDER BY updated_at DESC
          LIMIT 1`,
       ).get(bookId) as { id: string; chapter_id: string | null } | undefined

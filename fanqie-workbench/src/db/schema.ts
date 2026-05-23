@@ -104,4 +104,21 @@ CREATE TABLE IF NOT EXISTS session_messages (
   created_at TEXT NOT NULL,
   FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
+CREATE TABLE IF NOT EXISTS review_checkpoints (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  book_id TEXT NOT NULL,
+  chapter_id TEXT,
+  stage TEXT NOT NULL,
+  title TEXT NOT NULL,
+  summary_json TEXT NOT NULL,
+  changed_files_json TEXT NOT NULL,
+  options_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  FOREIGN KEY (session_id) REFERENCES sessions(id),
+  FOREIGN KEY (book_id) REFERENCES books(id),
+  FOREIGN KEY (chapter_id) REFERENCES chapters(id)
+);
 `

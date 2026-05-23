@@ -171,7 +171,7 @@ describe('BooksPage book entry', () => {
       }
       if (input === '/api/books/b1/sessions') return { ok: true, json: async () => ({ sessions: [] }) }
       if (input === '/api/books/b1/publications') return { ok: true, json: async () => ({ publications: [] }) }
-      if (input === '/api/sessions') return { ok: true, json: async () => ({ session: { id: 's-polish', kind: 'chapter', status: 'running' } }) }
+      if (input === '/api/actions') return { ok: true, json: async () => ({ session: { id: 's-polish', kind: 'chapter', status: 'running' } }) }
       return { ok: true, json: async () => ({}) }
     })
 
@@ -181,7 +181,7 @@ describe('BooksPage book entry', () => {
     fireEvent.click(await screen.findByText('润色'))
 
     await waitFor(() => {
-      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/sessions', expect.objectContaining({ method: 'POST' }))
+      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/actions', expect.objectContaining({ method: 'POST' }))
     })
   })
 
@@ -217,12 +217,12 @@ describe('BooksPage book entry', () => {
     expect(screen.queryByText((content) => content.includes('第1章 第一章书名：最终书名'))).toBeNull()
   })
 
-  it('reloads books and selects the created book when book-entry session completes', async () => {
+  it('reloads books after book-entry session completes via scan', async () => {
     let booksCallCount = 0
-    ;(globalThis as any).fetch = vi.fn(async (input: string) => {
+    ;(globalThis as any).fetch = vi.fn(async (input: string, init?: RequestInit) => {
       if (input === '/api/books') {
         booksCallCount += 1
-        if (booksCallCount === 1) {
+        if (booksCallCount <= 1) {
           return { ok: true, json: async () => ({ books: [] }) }
         }
         return { ok: true, json: async () => ({ books: [{ id: 'book-1', title: '雾港疑局', root_path: '/tmp/book-1', account_id: null }] }) }
@@ -230,8 +230,8 @@ describe('BooksPage book entry', () => {
       if (input === '/api/sessions') {
         return { ok: true, json: async () => ({ session: { id: 'book-entry-1', kind: 'prompt', status: 'running' } }) }
       }
-      if (input === '/api/sessions/book-entry-1') {
-        return { ok: true, json: async () => ({ session: { id: 'book-entry-1', kind: 'prompt', status: 'succeeded', contextSnapshotJson: JSON.stringify({ createdBookId: 'book-1' }) } }) }
+      if (input === '/api/books/scan' && init?.method === 'POST') {
+        return { ok: true, json: async () => ({ bookCount: 1, chapterCount: 1 }) }
       }
       if (input === '/api/books/book-1') {
         return { ok: true, json: async () => ({
@@ -262,15 +262,13 @@ describe('BooksPage book entry', () => {
       expect(instance).toBeTruthy()
       return instance
     })
-    stream?.onmessage?.({ data: JSON.stringify({ stream: 'stdout', chunk: '书名：雾港疑局' }) } as MessageEvent)
-    stream?.onmessage?.({ data: JSON.stringify({ stream: 'stdout', chunk: '第1章：雾夜失踪' }) } as MessageEvent)
-    stream?.onmessage?.({ data: JSON.stringify({ stream: 'stdout', chunk: '章节目录：第1章 雾夜失踪' }) } as MessageEvent)
     ;(stream as any)?.dispatchDone?.('succeeded')
 
     await waitFor(() => {
-      expect(screen.getAllByText('雾港疑局').length).toBeGreaterThan(0)
-      expect(screen.getByText('当前工作区')).toBeTruthy()
-      expect(localStorage.getItem('fanqie:books:selected-book')).toBe('book-1')
+      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/books/scan', expect.objectContaining({ method: 'POST' }))
+    })
+    await waitFor(() => {
+      expect(booksCallCount).toBeGreaterThanOrEqual(2)
     })
   })
 })

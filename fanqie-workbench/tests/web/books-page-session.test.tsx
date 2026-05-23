@@ -63,15 +63,15 @@ describe('BooksPage session model', () => {
     expect(toastStub.success).toHaveBeenCalledWith('写作基础设施已初始化：2 个文件')
   })
 
-  it('creates a chapter session when processing a chapter', async () => {
-    ;(globalThis as any).fetch = vi.fn(async (input: string) => {
+  it('creates a chapter action when processing a chapter', async () => {
+    ;(globalThis as any).fetch = vi.fn(async (input: string, init?: RequestInit) => {
       if (input === '/api/books') {
         return { ok: true, json: async () => ({ books: [{ id: 'b1', title: '雾港疑局', root_path: '/tmp/book', account_id: null }] }) }
       }
       if (input === '/api/books/b1') {
         return { ok: true, json: async () => ({ book: { id: 'b1', title: '雾港疑局' }, chapters: [{ id: 'c1', chapter_number: 1, title: '雾夜失踪', stage: '待写作' }] }) }
       }
-      if (input === '/api/sessions') {
+      if (input === '/api/actions' && init?.method === 'POST') {
         return { ok: true, json: async () => ({ session: { id: 's1', kind: 'chapter', status: 'running' } }) }
       }
       return { ok: true, json: async () => ({}) }
@@ -83,7 +83,7 @@ describe('BooksPage session model', () => {
     fireEvent.click(await screen.findByText('处理'))
 
     await waitFor(() => {
-      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/sessions', expect.objectContaining({
+      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/actions', expect.objectContaining({
         method: 'POST',
       }))
     })
@@ -160,7 +160,7 @@ describe('BooksPage session model', () => {
       if (input === '/api/books/b1/sessions') {
         return { ok: true, json: async () => ({ sessions: [] }) }
       }
-      if (input === '/api/sessions') {
+      if (input === '/api/actions') {
         return { ok: true, json: async () => ({ session: { id: 's-book', kind: 'chapter', status: 'running' } }) }
       }
       return { ok: true, json: async () => ({}) }
@@ -196,7 +196,7 @@ describe('BooksPage session model', () => {
       }
       if (input === '/api/books/b1/sessions') return { ok: true, json: async () => ({ sessions: [] }) }
       if (input === '/api/books/b1/publications') return { ok: true, json: async () => ({ publications: [] }) }
-      if (input === '/api/sessions') return { ok: true, json: async () => ({ session: { id: 's-chapter', kind: 'chapter', status: 'running' } }) }
+      if (input === '/api/actions') return { ok: true, json: async () => ({ session: { id: 's-chapter', kind: 'chapter', status: 'running' } }) }
       return { ok: true, json: async () => ({}) }
     })
 
@@ -215,7 +215,7 @@ describe('BooksPage session model', () => {
 
     await waitFor(() => {
       expect(toastStub.success).toHaveBeenCalledTimes(1)
-      expect(toastStub.success).toHaveBeenCalledWith('章节处理完成')
+      expect(toastStub.success).toHaveBeenCalledWith('章节处理完成，请确认阶段推进')
     })
     await waitFor(() => {
       expect(booksCallCount).toBe(2)
@@ -417,5 +417,52 @@ describe('BooksPage session model', () => {
     expect(await screen.findByText('待回答')).toBeTruthy()
     expect(await screen.findByText('主角现在是否应该立刻追人？')).toBeTruthy()
     expect(localStorage.getItem('fanqie:books:selected-book')).toBe('b1')
+  })
+
+  it('shows a review checkpoint card for a waiting-review session', async () => {
+    ;(globalThis as any).fetch = vi.fn(async (input: string) => {
+      if (input === '/api/books') {
+        return { ok: true, json: async () => ({ books: [{ id: 'b1', title: '雾港疑局', root_path: '/tmp/book', account_id: null }] }) }
+      }
+      if (input === '/api/books/b1') {
+        return { ok: true, json: async () => ({
+          book: { id: 'b1', title: '雾港疑局', root_path: '/tmp/book' },
+          chapters: [{ id: 'c1', chapter_number: 1, title: '雾夜失踪', stage: '待写作' }],
+          summary: {
+            totalChapters: 1,
+            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '发布中': 0, '已发布': 0 },
+            publishableCount: 0,
+            activeSessionId: 's-review',
+            activeChapterId: 'c1',
+          },
+        }) }
+      }
+      if (input === '/api/books/b1/sessions') {
+        return { ok: true, json: async () => ({ sessions: [{ id: 's-review', status: 'waiting-review', bookId: 'b1', chapterId: 'c1', currentSkill: 'chapter.continue' }] }) }
+      }
+      if (input === '/api/books/b1/publications') return { ok: true, json: async () => ({ publications: [] }) }
+      if (input === '/api/chapters/c1/content') return { ok: true, json: async () => ({ content: '## 第1章 雾夜失踪' }) }
+      if (input === '/api/sessions/s-review/review-checkpoint') {
+        return { ok: true, json: async () => ({
+          checkpoint: {
+            id: 'checkpoint-1',
+            title: '第 1 章正文已完成',
+            summary: { completed: ['章节正文已生成或更新'], checks: ['请在左侧编辑器中验收正文质量'] },
+            changedFiles: ['正文/第001章_雾夜失踪.md'],
+            options: ['accept', 'save-only'],
+            status: 'pending',
+          },
+        }) }
+      }
+      return { ok: true, json: async () => ({}) }
+    })
+
+    render(<BooksPage />)
+
+    fireEvent.click(await screen.findByText('雾港疑局'))
+
+    expect(await screen.findByText('阶段审阅')).toBeTruthy()
+    expect(screen.getByText('第 1 章正文已完成')).toBeTruthy()
+    expect(screen.getByText('接受')).toBeTruthy()
   })
 })

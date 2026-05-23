@@ -7,6 +7,24 @@ import { createSession, getSessionById } from '../../src/db/repositories/session
 import { buildServer } from '../../src/server/app.js'
 
 vi.mock('../../src/claude/claude-executor.js', () => ({
+  ClaudeSession: class MockClaudeSession {
+    private handlers = new Map<string, Array<(event: any) => void>>()
+    on(eventName: string, handler: (event: any) => void) {
+      const handlers = this.handlers.get(eventName) || []
+      handlers.push(handler)
+      this.handlers.set(eventName, handlers)
+      return this
+    }
+    start() {
+      queueMicrotask(() => {
+        for (const handler of this.handlers.get('claude') || []) {
+          handler({ type: 'text', text: 'ok' })
+          handler({ type: 'done', exitCode: 0 })
+        }
+      })
+    }
+    kill() {}
+  },
   executeClaudePrompt: vi.fn().mockResolvedValue({ exitCode: 0, stdout: 'ok', stderr: '' }),
 }))
 

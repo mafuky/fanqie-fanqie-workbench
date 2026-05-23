@@ -1,32 +1,46 @@
 import { resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type Database from 'better-sqlite3'
 import { openDatabase } from '../db/client.js'
 import {
   appendSessionMessage,
   updateSessionMetadata,
   updateSessionStatus,
+  type SessionStatus,
 } from '../db/repositories/sessions-repo.js'
 import { defaultRuntimeScheduler } from './runtime-scheduler.js'
+import { clearSessionRuntimeOptions, storeSessionRuntimeOptions } from './session-runtime-options.js'
 import { getOrCreateEmitter } from './stream-capture.js'
+import { runTerminalCaptureLoop } from './terminal-capture-loop.js'
 import { createTerminalRuntime, type TerminalRuntime } from './terminal-runtime.js'
 
-const WORKSPACE_ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
+const WORKSPACE_ROOT = resolve(import.meta.dirname, '..', '..', '..')
 
-function wait(ms: number) {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, ms)
-  })
+export type TerminalSessionCompletionInput = {
+  completeOnFirstCapture?: boolean
+  completeStatus?: Extract<SessionStatus, 'succeeded' | 'waiting-review'>
+  beforeComplete?: (input: { db: Database.Database; capture: string; sessionId: string; bookId: string }) => Promise<void>
 }
 
-export async function runTerminalSessionCommand(input: {
+export type RunTerminalSessionCommandInput = TerminalSessionCompletionInput & {
   databasePath: string
   sessionId: string
   bookId: string
   command: string
   runtime?: TerminalRuntime
   captureDelayMs?: number
-}) {
+  captureIntervalMs?: number
+  maxCaptureMs?: number
+  isComplete?: (capture: string) => boolean
+  currentSkill?: string | null
+}
+
+function createBeforeComplete(input: RunTerminalSessionCommandInput, db: Database.Database) {
+  return input.beforeComplete
+    ? (capture: string) => input.beforeComplete!({ db, capture, sessionId: input.sessionId, bookId: input.bookId })
+    : undefined
+}
+
+export async function runTerminalSessionCommand(input: RunTerminalSessionCommandInput) {
   await defaultRuntimeScheduler.run({ bookId: input.bookId }, async () => {
     const runtime = input.runtime ?? createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
     const emitter = getOrCreateEmitter(input.sessionId)
@@ -34,11 +48,20 @@ export async function runTerminalSessionCommand(input: {
 
     try {
       db = openDatabase(input.databasePath)
-      updateSessionStatus(db, input.sessionId, 'running')
+      updateSessionStatus(db, input.sessionId, 'running', input.currentSkill ?? undefined)
 
       const ensured = await runtime.ensureSession({ bookId: input.bookId })
       updateSessionMetadata(db, input.sessionId, {
         contextSnapshotJson: JSON.stringify({ tmuxSessionName: ensured.sessionName }),
+      })
+
+      storeSessionRuntimeOptions(input.sessionId, {
+        runtimeBookId: input.bookId,
+        currentSkill: input.currentSkill,
+        isComplete: input.isComplete,
+        completeOnFirstCapture: input.completeOnFirstCapture,
+        completeStatus: input.completeStatus,
+        beforeComplete: input.beforeComplete,
       })
 
       const inputContent = `${input.command}\n`
@@ -53,25 +76,22 @@ export async function runTerminalSessionCommand(input: {
         chunk: inputContent,
       })
 
+      const baseline = await runtime.capture({ bookId: input.bookId })
       await runtime.sendText({ bookId: input.bookId, text: input.command })
-      await wait(input.captureDelayMs ?? 1000)
-
-      const output = await runtime.capture({ bookId: input.bookId })
-      if (output.trim()) {
-        const outputMessageId = appendSessionMessage(db, input.sessionId, {
-          role: 'assistant',
-          stream: 'stdout',
-          content: output,
-        })
-        emitter.emit('log', {
-          id: outputMessageId,
-          stream: 'stdout',
-          chunk: output,
-        })
-      }
-
-      updateSessionStatus(db, input.sessionId, 'succeeded')
-      emitter.emit('done', { status: 'succeeded' })
+      const completion = await runTerminalCaptureLoop({
+        db,
+        sessionId: input.sessionId,
+        bookId: input.bookId,
+        runtime,
+        currentSkill: input.currentSkill,
+        captureIntervalMs: input.captureIntervalMs ?? input.captureDelayMs,
+        maxCaptureMs: input.maxCaptureMs,
+        initialCapture: baseline,
+        isComplete: input.isComplete ?? (input.completeOnFirstCapture ? ((capture) => !!capture.trim()) : undefined),
+        completeStatus: input.completeStatus,
+        beforeComplete: createBeforeComplete(input, db),
+      })
+      if (completion.status !== 'waiting-permission') clearSessionRuntimeOptions(input.sessionId)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
 
@@ -90,10 +110,11 @@ export async function runTerminalSessionCommand(input: {
         } catch {}
 
         try {
-          updateSessionStatus(db, input.sessionId, 'failed')
+          updateSessionStatus(db, input.sessionId, 'failed', input.currentSkill ?? undefined)
         } catch {}
       }
 
+      clearSessionRuntimeOptions(input.sessionId)
       emitter.emit('done', { status: 'failed' })
     } finally {
       if (db) {
