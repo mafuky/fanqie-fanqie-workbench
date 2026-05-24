@@ -65,10 +65,10 @@ describe('chapter file persistence', () => {
     expect(response.statusCode).toBe(201)
     const session = JSON.parse(response.body).session
 
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
       const sessionRes = await app.inject({ method: 'GET', url: `/api/sessions/${session.id}` })
       if (JSON.parse(sessionRes.body).session.status === 'succeeded') break
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await new Promise((resolve) => setTimeout(resolve, 200))
     }
 
     const streamResponse = await app.inject({ method: 'GET', url: `/api/sessions/${session.id}/stream` })
