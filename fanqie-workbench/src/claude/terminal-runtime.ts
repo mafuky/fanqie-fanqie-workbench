@@ -82,10 +82,22 @@ export function createTerminalRuntime(input: { projectRoot: string; runner?: Tmu
         throw new Error(createResult.stderr || `tmux new-session failed with exit code ${createResult.exitCode}`)
       }
 
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        const probe = await runner(['capture-pane', '-t', sessionName, '-p', '-S', '-'])
+        if (probe.stdout.includes('I accept')) {
+          await runner(['send-keys', '-t', sessionName, 'Down'])
+          await new Promise((resolve) => setTimeout(resolve, 200))
+          await runner(['send-keys', '-t', sessionName, 'Enter'])
+          break
+        }
+        if (probe.stdout.includes('❯')) break
+      }
+
       for (let attempt = 0; attempt < 30; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 1000))
         const probe = await runner(['capture-pane', '-t', sessionName, '-p', '-S', '-'])
-        if (probe.stdout.includes('~/') || probe.stdout.includes('❯') || probe.stdout.includes('>')) {
+        if (probe.stdout.includes('bypass permissions on') || (probe.stdout.includes('❯') && !probe.stdout.includes('I accept'))) {
           break
         }
       }

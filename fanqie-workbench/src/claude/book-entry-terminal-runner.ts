@@ -1,5 +1,4 @@
 import { resolve } from 'node:path'
-import { appendFileSync } from 'node:fs'
 import type Database from 'better-sqlite3'
 import { openDatabase } from '../db/client.js'
 import {
@@ -27,13 +26,7 @@ export type RunBookEntryTerminalSessionInput = {
   isComplete?: (capture: string) => boolean
 }
 
-function debugLog(msg: string) {
-  const p = resolve(import.meta.dirname, '..', '..', 'data', 'book-entry-debug.log')
-  try { appendFileSync(p, `${new Date().toISOString()} ${msg}\n`) } catch (e) { console.error('debugLog failed', e) }
-}
-
 export async function runBookEntryTerminalSession(input: RunBookEntryTerminalSessionInput): Promise<void> {
-  debugLog(`[called] sessionId=${input.sessionId} prompt=${input.prompt?.slice(0, 40)}`)
   const runtime = input.runtime ?? createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
   const emitter = getOrCreateEmitter(input.sessionId)
   const command = input.command ?? input.prompt ?? ''
@@ -43,11 +36,8 @@ export async function runBookEntryTerminalSession(input: RunBookEntryTerminalSes
     db = openDatabase(input.databasePath)
     updateSessionStatus(db, input.sessionId, 'running', 'book-entry')
 
-    debugLog('[step] stopping old session...')
-    await runtime.stop({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID }).catch((e) => debugLog(`[stop-err] ${e}`))
-    debugLog('[step] ensuring new session...')
+    await runtime.stop({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID }).catch(() => {})
     const ensured = await runtime.ensureSession({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID })
-    debugLog(`[step] session ready: ${ensured.sessionName} created=${ensured.created}`)
     updateSessionMetadata(db, input.sessionId, {
       contextSnapshotJson: JSON.stringify({ tmuxSessionName: ensured.sessionName }),
     })
@@ -67,9 +57,7 @@ export async function runBookEntryTerminalSession(input: RunBookEntryTerminalSes
     emitter.emit('log', { id: inputMessageId, stream: 'input', chunk: inputContent })
 
     const baseline = await runtime.capture({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID })
-    debugLog(`[step] baseline captured: ${baseline.length} chars, ${baseline.split('\\n').length} lines`)
     await runtime.sendText({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID, text: command })
-    debugLog(`[step] command sent, starting capture loop`)
 
     const completion = await runTerminalCaptureLoop({
       db,
@@ -82,11 +70,9 @@ export async function runBookEntryTerminalSession(input: RunBookEntryTerminalSes
       initialCapture: baseline,
       isComplete: input.isComplete,
     })
-    if (completion.status !== 'waiting-permission') clearSessionRuntimeOptions(input.sessionId)
+    if (completion.status === 'succeeded' || completion.status === 'failed') clearSessionRuntimeOptions(input.sessionId)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    debugLog(`[ERROR] ${message}`)
-    if (error instanceof Error && error.stack) debugLog(`[STACK] ${error.stack}`)
 
     if (db) {
       try {

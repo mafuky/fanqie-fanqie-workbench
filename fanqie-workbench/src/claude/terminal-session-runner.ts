@@ -91,7 +91,7 @@ export async function runTerminalSessionCommand(input: RunTerminalSessionCommand
         completeStatus: input.completeStatus,
         beforeComplete: createBeforeComplete(input, db),
       })
-      if (completion.status !== 'waiting-permission') clearSessionRuntimeOptions(input.sessionId)
+      if (completion.status === 'succeeded' || completion.status === 'failed') clearSessionRuntimeOptions(input.sessionId)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
 

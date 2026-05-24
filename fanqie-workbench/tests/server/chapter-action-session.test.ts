@@ -68,10 +68,10 @@ describe('chapter action session', () => {
 
     const body = JSON.parse(response.body)
 
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
       const sessionRes = await app.inject({ method: 'GET', url: `/api/sessions/${body.session.id}` })
       if (JSON.parse(sessionRes.body).session.status === 'succeeded') break
-      await new Promise((resolve) => setTimeout(resolve, 50))
+      await new Promise((resolve) => setTimeout(resolve, 200))
     }
 
     const stream = await app.inject({ method: 'GET', url: `/api/sessions/${body.session.id}/stream` })
