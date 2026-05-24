@@ -1,4 +1,5 @@
 import Fastify from 'fastify'
+import websocket from '@fastify/websocket'
 import { registerTaskRoutes } from './routes/tasks.js'
 import { registerTaskStreamRoutes } from './routes/task-stream.js'
 import { registerBookRoutes } from './routes/books.js'
@@ -10,9 +11,11 @@ import { registerReviewCheckpointRoutes } from './routes/review-checkpoints.js'
 import { registerMarketScanRoutes } from './routes/market-scans.js'
 import { registerAccountRoutes } from './routes/accounts.js'
 import { registerStorySetupRoutes } from './routes/story-setup.js'
+import { registerPtyWsRoutes } from './routes/pty-ws.js'
 
 export async function buildServer() {
   const app = Fastify()
+  await app.register(websocket)
   app.get('/health', async () => ({ ok: true }))
   await registerTaskRoutes(app)
   await registerTaskStreamRoutes(app)
@@ -25,6 +28,7 @@ export async function buildServer() {
   await registerMarketScanRoutes(app)
   await registerAccountRoutes(app)
   await registerStorySetupRoutes(app)
+  await registerPtyWsRoutes(app)
   return app
 }
 
