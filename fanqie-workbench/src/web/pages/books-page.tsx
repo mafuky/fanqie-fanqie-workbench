@@ -16,6 +16,7 @@ import { useToast } from '../components/ui/toast.js'
 import { BookCreationModal } from '../components/book-creation-modal.js'
 import { BookSessionPanel } from '../components/book-session-panel.js'
 import { ChapterActionMenu, type ChapterActionKey } from '../components/chapter-action-menu.js'
+import { ChapterReader } from '../components/chapter-reader.js'
 import { spacing, fontSize, fontWeight, radius, transition } from '../styles/tokens.js'
 
 type BookSummary = {
@@ -251,6 +252,7 @@ export function BooksPage() {
   const [bookEntryContent, setBookEntryContent] = useState('')
   const [activeActionLabel, setActiveActionLabel] = useState<string | null>(null)
   const [openActionChapterId, setOpenActionChapterId] = useState<string | null>(null)
+  const [readingChapterId, setReadingChapterId] = useState<string | null>(null)
   const [contextOpen, setContextOpen] = useState(false)
   const [bookSessions, setBookSessions] = useState<Record<string, BookSessionRecord[]>>({})
   const [userHint, setUserHint] = useState('')
@@ -1333,14 +1335,29 @@ export function BooksPage() {
                                 第{ch.chapter_number}章
                               </span>
                               <div>
-                                <div style={{
-                                  fontSize: fontSize.md + 1,
-                                  fontWeight: fontWeight.semibold,
-                                  color: theme === 'light' ? '#4b3b2f' : '#f1e1d2',
-                                  lineHeight: 1.4,
-                                }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setReadingChapterId(ch.id)}
+                                  title="点击阅读这一章"
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    padding: 0,
+                                    margin: 0,
+                                    cursor: 'pointer',
+                                    fontSize: fontSize.md + 1,
+                                    fontWeight: fontWeight.semibold,
+                                    fontFamily: 'inherit',
+                                    color: theme === 'light' ? '#4b3b2f' : '#f1e1d2',
+                                    lineHeight: 1.4,
+                                    textAlign: 'left',
+                                    transition: `color ${transition.normal}`,
+                                  }}
+                                  onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent)')}
+                                  onMouseLeave={(e) => (e.currentTarget.style.color = theme === 'light' ? '#4b3b2f' : '#f1e1d2')}
+                                >
                                   {ch.title}
-                                </div>
+                                </button>
                                 <div style={{
                                   fontSize: fontSize.xs,
                                   color: theme === 'light' ? '#8b7461' : '#c7ae97',
@@ -1356,6 +1373,32 @@ export function BooksPage() {
                               </div>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: spacing.sm }}>
+                              <button
+                                type="button"
+                                onClick={() => setReadingChapterId(ch.id)}
+                                title="阅读本章"
+                                style={{
+                                  padding: '4px 10px',
+                                  background: 'transparent',
+                                  border: theme === 'light' ? '1px solid #eadfcf' : '1px solid #3f3127',
+                                  borderRadius: radius.sm,
+                                  color: theme === 'light' ? '#8b7461' : '#c7ae97',
+                                  fontSize: fontSize.xs,
+                                  cursor: 'pointer',
+                                  fontFamily: 'inherit',
+                                  transition: `all ${transition.normal}`,
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = 'var(--accent)'
+                                  e.currentTarget.style.borderColor = 'var(--accent)'
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = theme === 'light' ? '#8b7461' : '#c7ae97'
+                                  e.currentTarget.style.borderColor = theme === 'light' ? '#eadfcf' : '#3f3127'
+                                }}
+                              >
+                                阅读
+                              </button>
                               <span
                                 style={{
                                   display: 'inline-flex',
@@ -1428,6 +1471,13 @@ export function BooksPage() {
             )
           })}
         </div>
+      )}
+      {readingChapterId && (
+        <ChapterReader
+          chapterId={readingChapterId}
+          onClose={() => setReadingChapterId(null)}
+          onNavigate={(id) => setReadingChapterId(id)}
+        />
       )}
     </div>
   )
