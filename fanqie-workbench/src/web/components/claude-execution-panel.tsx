@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { LiveLogPanel } from './live-log-panel.js'
+import { TerminalPanel } from './terminal-panel.js'
 import { PermissionPromptCard, type PermissionPromptDetection } from './permission-prompt-card.js'
 import { ReviewCheckpointCard } from './review-checkpoint-card.js'
 import { spacing, fontSize, radius } from '../styles/tokens.js'
@@ -8,6 +9,7 @@ export function ClaudeExecutionPanel({
   sessionId,
   sessionStatus,
   actionLabel,
+  useTerminal,
   onDone,
   onInterrupted,
   onAnswerSubmitted,
@@ -15,6 +17,7 @@ export function ClaudeExecutionPanel({
   sessionId: string | null
   sessionStatus?: string | null
   actionLabel?: string
+  useTerminal?: boolean
   onDone?: (status: string) => void
   onInterrupted?: () => void
   onAnswerSubmitted?: (answer: string) => void
@@ -71,7 +74,7 @@ export function ClaudeExecutionPanel({
         </button>
       </div>
       {error && <div style={{ color: 'var(--red)', fontSize: fontSize.sm }}>{error}</div>}
-      {permissionPrompt && (
+      {!useTerminal && permissionPrompt && (
         <PermissionPromptCard
           detection={permissionPrompt}
           sessionId={sessionId}
@@ -89,13 +92,20 @@ export function ClaudeExecutionPanel({
           }}
         />
       )}
-      <LiveLogPanel
-        taskId={sessionId}
-        streamBase="sessions"
-        onDone={handleDone}
-        onAnswerSubmitted={onAnswerSubmitted}
-        onPermissionBlocked={setPermissionPrompt}
-      />
+      {useTerminal ? (
+        <TerminalPanel
+          sessionId={sessionId}
+          onDone={handleDone}
+        />
+      ) : (
+        <LiveLogPanel
+          taskId={sessionId}
+          streamBase="sessions"
+          onDone={handleDone}
+          onAnswerSubmitted={onAnswerSubmitted}
+          onPermissionBlocked={setPermissionPrompt}
+        />
+      )}
     </aside>
   )
 }

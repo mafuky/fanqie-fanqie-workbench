@@ -1,23 +1,12 @@
 import type { FastifyInstance } from 'fastify'
-import { resolve } from 'node:path'
 import { openDatabase } from '../../db/client.js'
 import { getSessionById, getSessionMessages, updateSessionStatus } from '../../db/repositories/sessions-repo.js'
-import { createPtyManager, type PtyManager } from '../../claude/pty-manager.js'
+import { getBookEntryPtyManager } from '../../claude/book-entry-terminal-runner.js'
+import type { PtyManager } from '../../claude/pty-manager.js'
 import type { ParsedEvent } from '../../claude/pty-event-parser.js'
 
-const WORKSPACE_ROOT = resolve(import.meta.dirname, '..', '..', '..', '..')
-
-let sharedPtyManager: PtyManager | null = null
-
-function getPtyManager(): PtyManager {
-  if (!sharedPtyManager) {
-    sharedPtyManager = createPtyManager({ projectRoot: WORKSPACE_ROOT })
-  }
-  return sharedPtyManager
-}
-
 export function getSharedPtyManager(): PtyManager {
-  return getPtyManager()
+  return getBookEntryPtyManager()
 }
 
 function getDatabasePath() {
@@ -40,7 +29,7 @@ export async function registerPtyWsRoutes(app: FastifyInstance) {
       }
 
       const bookId = session.bookId ?? 'book-entry'
-      const manager = getPtyManager()
+      const manager = getBookEntryPtyManager()
       const ptySession = manager.getSession(bookId)
 
       if (!ptySession) {
@@ -110,7 +99,7 @@ export async function registerPtyWsRoutes(app: FastifyInstance) {
       ptySession.emitter.on('permission', onPermission)
       ptySession.emitter.on('exit', onExit)
 
-      socket.on('message', (raw) => {
+      socket.on('message', (raw: unknown) => {
         const msg = JSON.parse(String(raw)) as { type: string; data?: string; cols?: number; rows?: number; answer?: string }
         switch (msg.type) {
           case 'input':

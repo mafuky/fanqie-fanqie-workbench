@@ -141,7 +141,7 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
 
       {bookEntrySessionId && (
         <div style={{ marginTop: spacing.lg }}>
-          <ClaudeExecutionPanel sessionId={bookEntrySessionId} actionLabel="新建一本书" onDone={() => void finishBookEntry()} onInterrupted={() => void finishBookEntry()} onAnswerSubmitted={() => void loadBooks()} />
+          <ClaudeExecutionPanel sessionId={bookEntrySessionId} actionLabel="新建一本书" useTerminal onDone={() => void finishBookEntry()} onInterrupted={() => void finishBookEntry()} onAnswerSubmitted={() => void loadBooks()} />
         </div>
       )}
 
