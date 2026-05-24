@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, dirname } from 'node:path'
@@ -5,20 +6,55 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi, afterEach } from 'vitest'
 import { syncWorkspaceBooks } from '../../src/db/repositories/books-repo.js'
 
-const sendKeys = vi.fn(async () => {})
+const mockSendKeys = vi.fn()
+const mockWrite = vi.fn()
+const mockPtyEmitter = new EventEmitter()
+
+// Factory: creates a mock PtySession for any bookId
+function makeMockPtySession(bookId: string) {
+  return {
+    id: bookId,
+    pty: {} as any,
+    emitter: mockPtyEmitter,
+    parser: { getBuffer: () => '' },
+    status: 'idle' as const,
+  }
+}
+
+const sessionCache = new Map<string, ReturnType<typeof makeMockPtySession>>()
+
+const mockManager = {
+  spawn: vi.fn(async (bookId: string) => {
+    const s = makeMockPtySession(bookId)
+    sessionCache.set(bookId, s)
+    return s
+  }),
+  kill: vi.fn(),
+  getSession: vi.fn((bookId: string) => sessionCache.get(bookId) ?? makeMockPtySession(bookId)),
+  write: mockWrite,
+  sendKeys: mockSendKeys,
+  resize: vi.fn(),
+}
+
+vi.mock('../../src/claude/pty-manager.js', () => ({
+  createPtyManager: () => mockManager,
+}))
+
+vi.mock('../../src/claude/book-entry-terminal-runner.js', () => ({
+  getBookEntryPtyManager: () => mockManager,
+  runBookEntryTerminalSession: vi.fn(async () => {}),
+}))
+
 vi.mock('../../src/claude/terminal-runtime.js', () => ({
-  createTerminalRuntime: () => {
-    let sent = false
-    return {
-      ensureSession: async () => ({ sessionName: 'fanqie-book-book-1', created: true }),
-      sendText: async () => { sent = true },
-      sendKeys: async (...args: any[]) => { sent = true; sendKeys(...args) },
-      capture: async () => sent ? '需要用户确认下一步\n❯\n[status]' : '',
-      interrupt: async () => {},
-      stop: async () => {},
-      sendPermissionChoice: async () => {},
-    }
-  },
+  createTerminalRuntime: () => ({
+    ensureSession: vi.fn(async () => ({ sessionName: 'test', created: true })),
+    sendText: vi.fn(async () => {}),
+    sendKeys: vi.fn(async () => {}),
+    capture: vi.fn(async () => '❯\n[status]'),
+    interrupt: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
+    sendPermissionChoice: vi.fn(async () => {}),
+  }),
 }))
 
 vi.mock('../../src/claude/claude-executor.js', () => ({
@@ -40,7 +76,10 @@ describe('chapter session human-in-the-loop execution', () => {
   afterEach(() => {
     delete process.env.WORKBENCH_DB
     vi.restoreAllMocks()
-    sendKeys.mockReset()
+    mockSendKeys.mockReset()
+    mockWrite.mockReset()
+    mockPtyEmitter.removeAllListeners()
+    sessionCache.clear()
   })
 
   it('continues a waiting chapter session by sending option selection to tmux', async () => {
@@ -78,7 +117,7 @@ describe('chapter session human-in-the-loop execution', () => {
       payload: { answer: '1. 悬疑推理' },
     })
     expect(answerResponse.statusCode).toBe(200)
-    expect(sendKeys).toHaveBeenCalledWith({ bookId: chapter.book_id, keys: ['Enter'] })
+    expect(mockSendKeys).toHaveBeenCalledWith(chapter.book_id, ['Enter'])
 
     const finalResponse = await app.inject({ method: 'GET', url: `/api/sessions/${session.id}` })
     const finalSession = JSON.parse(finalResponse.body).session
