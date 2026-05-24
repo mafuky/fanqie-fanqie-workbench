@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
@@ -11,18 +12,40 @@ vi.mock('../../src/claude/claude-executor.js', () => ({
   },
 }))
 
-let mockCaptureText = '开书中…'
+const mockPtyEmitter = new EventEmitter()
+const mockPtySession = {
+  id: 'book-entry',
+  pty: {} as any,
+  emitter: mockPtyEmitter,
+  parser: { getBuffer: () => '' },
+  status: 'idle' as const,
+}
+const mockManager = {
+  spawn: vi.fn(async () => mockPtySession),
+  kill: vi.fn(),
+  getSession: vi.fn(() => mockPtySession),
+  write: vi.fn(),
+  sendKeys: vi.fn(),
+  resize: vi.fn(),
+}
+
+vi.mock('../../src/claude/pty-manager.js', () => ({
+  createPtyManager: () => mockManager,
+}))
+
+vi.mock('../../src/claude/book-entry-terminal-runner.js', () => ({
+  getBookEntryPtyManager: () => mockManager,
+  runBookEntryTerminalSession: vi.fn(async () => {}),
+}))
+
 vi.mock('../../src/claude/terminal-runtime.js', () => ({
-  createTerminalRuntime: () => {
-    let sent = false
-    return {
-      ensureSession: async () => ({ sessionName: 'fanqie-book-book-entry', created: true }),
-      sendText: async () => { sent = true },
-      capture: async () => sent ? mockCaptureText : '',
-      interrupt: async () => {},
-      stop: async () => {},
-    }
-  },
+  createTerminalRuntime: () => ({
+    ensureSession: vi.fn(async () => ({ sessionName: 'test', created: true })),
+    sendText: vi.fn(async () => {}),
+    capture: vi.fn(async () => ''),
+    interrupt: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
+  }),
 }))
 
 async function createTempDatabasePath(name: string) {
@@ -33,7 +56,8 @@ async function createTempDatabasePath(name: string) {
 describe('book creation session', () => {
   afterEach(() => {
     delete process.env.WORKBENCH_DB
-    mockCaptureText = '开书中…'
+    vi.clearAllMocks()
+    mockPtyEmitter.removeAllListeners()
   })
 
   it('creates a book-entry session and runs it via terminal runtime', async () => {
