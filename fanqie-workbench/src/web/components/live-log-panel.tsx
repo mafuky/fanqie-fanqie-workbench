@@ -4,7 +4,8 @@ import { fontSize, radius, spacing } from '../styles/tokens.js'
 type QuestionPayload = {
   toolUseId: string
   question: string
-  options: Array<{ label: string; description?: string }>
+  options: Array<{ label: string; description?: string; checked?: boolean }>
+  multiSelect?: boolean
 }
 
 type PermissionPromptPayload = {
@@ -42,6 +43,7 @@ export function LiveLogPanel({
   const [customAnswer, setCustomAnswer] = useState('')
   const [answering, setAnswering] = useState(false)
   const [answerError, setAnswerError] = useState<string | null>(null)
+  const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set())
   const containerRef = useRef<HTMLPreElement>(null)
   const startRef = useRef(Date.now())
   const seenMessageIdsRef = useRef<Set<number>>(new Set())
@@ -60,6 +62,7 @@ export function LiveLogPanel({
     setQuestion(null)
     setCustomAnswer('')
     setAnswerError(null)
+    setSelectedOptions(new Set())
     startRef.current = Date.now()
     setElapsed(0)
 
@@ -81,8 +84,14 @@ export function LiveLogPanel({
     }
 
     eventSource.addEventListener('question', (event) => {
-      const data = JSON.parse((event as MessageEvent).data)
+      const data = JSON.parse((event as MessageEvent).data) as QuestionPayload
       setQuestion(data)
+      if (data.multiSelect && data.options) {
+        const preChecked = new Set(data.options.filter((o) => o.checked).map((o) => o.label))
+        setSelectedOptions(preChecked)
+      } else {
+        setSelectedOptions(new Set())
+      }
     })
 
     eventSource.addEventListener('permission-blocked', (event) => {
@@ -175,32 +184,102 @@ export function LiveLogPanel({
           <div style={{ fontSize: fontSize.md, fontWeight: 600, marginBottom: spacing.sm }}>
             {question.question}
           </div>
+          {question.multiSelect && (
+            <div style={{ fontSize: fontSize.sm, color: 'var(--text-muted)', marginBottom: spacing.sm }}>
+              可多选，选好后点「确认选择」
+            </div>
+          )}
           {answerError && <div style={{ color: 'var(--red)', fontSize: fontSize.sm, marginBottom: spacing.sm }}>{answerError}</div>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
-            {question.options.map((option) => (
+            {question.options.map((option) => {
+              const isSelected = selectedOptions.has(option.label)
+              return question.multiSelect ? (
+                <button
+                  key={option.label}
+                  onClick={() => {
+                    setSelectedOptions((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(option.label)) next.delete(option.label)
+                      else next.add(option.label)
+                      return next
+                    })
+                  }}
+                  disabled={answering}
+                  style={{
+                    textAlign: 'left',
+                    padding: `${spacing.sm}px ${spacing.md}px`,
+                    background: isSelected ? 'var(--accent)' : 'var(--bg-secondary)',
+                    color: isSelected ? 'white' : 'var(--text-primary)',
+                    border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
+                    borderRadius: radius.md,
+                    cursor: answering ? 'not-allowed' : 'pointer',
+                    opacity: answering ? 0.6 : 1,
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>
+                    {isSelected ? '[✔] ' : '[ ] '}{option.label}
+                  </div>
+                  {option.description && (
+                    <div style={{ fontSize: fontSize.sm, color: isSelected ? 'rgba(255,255,255,0.8)' : 'var(--text-muted)', marginTop: 2 }}>
+                      {option.description}
+                    </div>
+                  )}
+                </button>
+              ) : (
+                <button
+                  key={option.label}
+                  onClick={() => handleAnswer(option.label)}
+                  disabled={answering}
+                  style={{
+                    textAlign: 'left',
+                    padding: `${spacing.sm}px ${spacing.md}px`,
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: radius.md,
+                    cursor: answering ? 'not-allowed' : 'pointer',
+                    opacity: answering ? 0.6 : 1,
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>{option.label}</div>
+                  {option.description && (
+                    <div style={{ fontSize: fontSize.sm, color: 'var(--text-muted)', marginTop: 2 }}>
+                      {option.description}
+                    </div>
+                  )}
+                </button>
+              )
+            })}
+            {question.multiSelect && (
               <button
-                key={option.label}
-                onClick={() => handleAnswer(option.label)}
-                disabled={answering}
+                onClick={() => {
+                  const desiredNums = Array.from(selectedOptions)
+                    .map((l) => l.match(/^(\d+)\./)?.[1])
+                    .filter(Boolean)
+                    .map(Number)
+                  const initialNums = question.options
+                    .filter((o) => o.checked)
+                    .map((o) => o.label.match(/^(\d+)\./)?.[1])
+                    .filter(Boolean)
+                    .map(Number)
+                  const totalCount = question.options.length
+                  void handleAnswer(`multi-final:${desiredNums.join(',')}|initial:${initialNums.join(',')}|count:${totalCount}`)
+                }}
+                disabled={answering || selectedOptions.size === 0}
                 style={{
-                  textAlign: 'left',
                   padding: `${spacing.sm}px ${spacing.md}px`,
-                  background: 'var(--bg-secondary)',
-                  color: 'var(--text-primary)',
-                  border: '1px solid var(--border)',
+                  background: 'var(--accent)',
+                  color: 'white',
+                  border: 'none',
                   borderRadius: radius.md,
-                  cursor: answering ? 'not-allowed' : 'pointer',
-                  opacity: answering ? 0.6 : 1,
+                  fontWeight: 600,
+                  cursor: answering || selectedOptions.size === 0 ? 'not-allowed' : 'pointer',
+                  opacity: answering || selectedOptions.size === 0 ? 0.6 : 1,
                 }}
               >
-                <div style={{ fontWeight: 600 }}>{option.label}</div>
-                {option.description && (
-                  <div style={{ fontSize: fontSize.sm, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {option.description}
-                  </div>
-                )}
+                确认选择（{selectedOptions.size} 项）
               </button>
-            ))}
+            )}
             <div style={{ display: 'flex', gap: spacing.sm, flexWrap: 'wrap', alignItems: 'center' }}>
               <input
                 value={customAnswer}

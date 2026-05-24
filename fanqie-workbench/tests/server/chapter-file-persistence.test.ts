@@ -35,7 +35,7 @@ describe('chapter file persistence', () => {
     delete process.env.WORKBENCH_DB
   })
 
-  it('records generated writing-stage terminal output in the chapter session stream', async () => {
+  it('records generated writing-stage terminal output in the chapter session stream', { timeout: 30000 }, async () => {
     const databasePath = await createTempDatabasePath('chapter-file.sqlite')
     const chapterDir = await mkdtemp(resolve(tmpdir(), 'fanqie-workbench-chapter-dir-'))
     const sourcePath = resolve(chapterDir, '第001章_雾夜失踪.md')

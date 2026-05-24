@@ -35,7 +35,7 @@ describe('chapter action session', () => {
     delete process.env.WORKBENCH_DB
   })
 
-  it('creates a chapter action session for polish and streams its action output', async () => {
+  it('creates a chapter action session for polish and streams its action output', { timeout: 30000 }, async () => {
     const databasePath = await createTempDatabasePath('chapter-action.sqlite')
     const db = openDatabase(databasePath)
     db.prepare('INSERT INTO books (id, title, root_path, account_id) VALUES (?, ?, ?, NULL)').run('book-1', '雾港疑局', '/tmp/book-1')

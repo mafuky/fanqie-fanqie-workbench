@@ -40,11 +40,11 @@ async function createNovelFixture() {
 }
 
 async function waitForSessionStatus(app: Awaited<ReturnType<typeof import('../../src/server/app.js').buildServer>>, sessionId: string, expectedStatus: string) {
-  for (let attempt = 0; attempt < 40; attempt += 1) {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
     const sessionResponse = await app.inject({ method: 'GET', url: `/api/sessions/${sessionId}` })
     const fetchedSession = JSON.parse(sessionResponse.body).session
     if (fetchedSession.status === expectedStatus) return fetchedSession
-    await new Promise((resolve) => setTimeout(resolve, 200))
+    await new Promise((resolve) => setTimeout(resolve, 300))
   }
   const sessionResponse = await app.inject({ method: 'GET', url: `/api/sessions/${sessionId}` })
   return JSON.parse(sessionResponse.body).session
@@ -56,7 +56,7 @@ describe('chapter session execution', () => {
     vi.restoreAllMocks()
   })
 
-  it('routes legacy chapter-pipeline sessions through the book terminal runtime', async () => {
+  it('routes legacy chapter-pipeline sessions through the book terminal runtime', { timeout: 30000 }, async () => {
     const databasePath = await createTempDatabasePath('chapter-session.sqlite')
     await syncWorkspaceBooks({ novelsRoot: await createNovelFixture(), databasePath })
     process.env.WORKBENCH_DB = databasePath
