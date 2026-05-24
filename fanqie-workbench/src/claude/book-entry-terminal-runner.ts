@@ -1,52 +1,42 @@
 import { resolve } from 'node:path'
-import type Database from 'better-sqlite3'
 import { openDatabase } from '../db/client.js'
 import {
   appendSessionMessage,
-  updateSessionMetadata,
-  updateSessionPendingQuestion,
   updateSessionStatus,
 } from '../db/repositories/sessions-repo.js'
-import { storeSessionRuntimeOptions, clearSessionRuntimeOptions } from './session-runtime-options.js'
 import { getOrCreateEmitter } from './stream-capture.js'
-import { runTerminalCaptureLoop } from './terminal-capture-loop.js'
-import { createTerminalRuntime, type TerminalRuntime } from './terminal-runtime.js'
+import { createPtyManager, type PtyManager } from './pty-manager.js'
 
 const WORKSPACE_ROOT = resolve(import.meta.dirname, '..', '..', '..')
 const BOOK_ENTRY_RUNTIME_BOOK_ID = 'book-entry'
+
+let sharedManager: PtyManager | null = null
+
+export function getBookEntryPtyManager(): PtyManager {
+  if (!sharedManager) {
+    sharedManager = createPtyManager({ projectRoot: WORKSPACE_ROOT })
+  }
+  return sharedManager
+}
 
 export type RunBookEntryTerminalSessionInput = {
   databasePath: string
   sessionId: string
   prompt?: string
   command?: string
-  runtime?: TerminalRuntime
-  captureIntervalMs?: number
-  maxCaptureMs?: number
-  isComplete?: (capture: string) => boolean
 }
 
 export async function runBookEntryTerminalSession(input: RunBookEntryTerminalSessionInput): Promise<void> {
-  const runtime = input.runtime ?? createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
+  const manager = getBookEntryPtyManager()
   const emitter = getOrCreateEmitter(input.sessionId)
   const command = input.command ?? input.prompt ?? ''
-  let db: Database.Database | null = null
+  let db: ReturnType<typeof openDatabase> | null = null
 
   try {
     db = openDatabase(input.databasePath)
     updateSessionStatus(db, input.sessionId, 'running', 'book-entry')
 
-    await runtime.stop({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID }).catch(() => {})
-    const ensured = await runtime.ensureSession({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID })
-    updateSessionMetadata(db, input.sessionId, {
-      contextSnapshotJson: JSON.stringify({ tmuxSessionName: ensured.sessionName }),
-    })
-
-    storeSessionRuntimeOptions(input.sessionId, {
-      runtimeBookId: BOOK_ENTRY_RUNTIME_BOOK_ID,
-      currentSkill: 'book-entry',
-      isComplete: input.isComplete,
-    })
+    const session = await manager.spawn(BOOK_ENTRY_RUNTIME_BOOK_ID)
 
     const inputContent = `${command}\n`
     const inputMessageId = appendSessionMessage(db, input.sessionId, {
@@ -56,21 +46,39 @@ export async function runBookEntryTerminalSession(input: RunBookEntryTerminalSes
     })
     emitter.emit('log', { id: inputMessageId, stream: 'input', chunk: inputContent })
 
-    const baseline = await runtime.capture({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID })
-    await runtime.sendText({ bookId: BOOK_ENTRY_RUNTIME_BOOK_ID, text: command })
+    // Wait for Claude to be ready (prompt or bypass message), timeout 30s
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        cleanup()
+        resolve() // Proceed anyway on timeout
+      }, 30_000)
 
-    const completion = await runTerminalCaptureLoop({
-      db,
-      sessionId: input.sessionId,
-      bookId: BOOK_ENTRY_RUNTIME_BOOK_ID,
-      runtime,
-      currentSkill: 'book-entry',
-      captureIntervalMs: input.captureIntervalMs,
-      maxCaptureMs: input.maxCaptureMs,
-      initialCapture: baseline,
-      isComplete: input.isComplete,
+      const onOutput = (data: string) => {
+        if (data.includes('❯') || data.includes('bypass permissions on')) {
+          cleanup()
+          resolve()
+        }
+      }
+
+      // Auto-handle "I accept" acceptance prompt
+      const onQuestion = () => {
+        manager.sendKeys(BOOK_ENTRY_RUNTIME_BOOK_ID, ['Down', 'Enter'])
+      }
+
+      const cleanup = () => {
+        clearTimeout(timeout)
+        session.emitter.off('output', onOutput)
+        session.emitter.off('question', onQuestion)
+      }
+
+      session.emitter.on('output', onOutput)
+      session.emitter.on('question', onQuestion)
     })
-    if (completion.status === 'succeeded' || completion.status === 'failed') clearSessionRuntimeOptions(input.sessionId)
+
+    // Send the command to the PTY
+    manager.write(BOOK_ENTRY_RUNTIME_BOOK_ID, command + '\n')
+
+    // NO capture loop — the WebSocket route (pty-ws) handles streaming to the frontend.
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
 
@@ -85,15 +93,10 @@ export async function runBookEntryTerminalSession(input: RunBookEntryTerminalSes
       } catch {}
 
       try {
-        updateSessionPendingQuestion(db, input.sessionId, null)
-      } catch {}
-
-      try {
         updateSessionStatus(db, input.sessionId, 'failed', 'book-entry')
       } catch {}
     }
 
-    clearSessionRuntimeOptions(input.sessionId)
     emitter.emit('done', { status: 'failed' })
   } finally {
     if (db) {

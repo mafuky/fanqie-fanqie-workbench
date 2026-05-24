@@ -14,15 +14,14 @@ import {
   updateSessionStatus,
   type SessionKind,
 } from '../../db/repositories/sessions-repo.js'
-import { runBookEntryTerminalSession } from '../../claude/book-entry-terminal-runner.js'
+import { runBookEntryTerminalSession, getBookEntryPtyManager } from '../../claude/book-entry-terminal-runner.js'
 import { buildActionCommand } from '../../actions/action-command-builder.js'
 import { normalizeActionKey } from '../../actions/action-registry.js'
 import { ClaudeSession, type ClaudeEvent } from '../../claude/claude-executor.js'
 import { getOrCreateEmitter } from '../../claude/stream-capture.js'
 import { getSessionRuntimeOptions, clearSessionRuntimeOptions } from '../../claude/session-runtime-options.js'
 import { runTerminalSessionCommand } from '../../claude/terminal-session-runner.js'
-import { createTerminalRuntime, type PermissionChoice } from '../../claude/terminal-runtime.js'
-import { runTerminalCaptureLoop } from '../../claude/terminal-capture-loop.js'
+import type { PermissionChoice } from '../../claude/terminal-runtime.js'
 
 function getDatabasePath() {
   return process.env.WORKBENCH_DB || 'data/workbench.sqlite'
@@ -251,6 +250,9 @@ export async function registerSessionRoutes(app: FastifyInstance) {
     const onPermissionBlocked = (data: any) => {
       reply.raw.write(`event: permission-blocked\ndata: ${JSON.stringify(data)}\n\n`)
     }
+    const onThinking = (data: { text: string }) => {
+      reply.raw.write(`event: thinking\ndata: ${JSON.stringify(data)}\n\n`)
+    }
     const onDone = (data: { status: string }) => {
       reply.raw.write(`event: done\ndata: ${JSON.stringify(data)}\n\n`)
       reply.raw.end()
@@ -259,12 +261,14 @@ export async function registerSessionRoutes(app: FastifyInstance) {
     const cleanup = () => {
       emitter.off('log', onLog)
       emitter.off('question', onQuestion)
+      emitter.off('thinking', onThinking)
       emitter.off('permission-blocked', onPermissionBlocked)
       emitter.off('done', onDone)
     }
 
     emitter.on('log', onLog)
     emitter.on('question', onQuestion)
+    emitter.on('thinking', onThinking)
     emitter.on('permission-blocked', onPermissionBlocked)
     emitter.on('done', onDone)
     request.raw.on('close', cleanup)
@@ -295,8 +299,22 @@ export async function registerSessionRoutes(app: FastifyInstance) {
       return reply.code(409).send({ error: 'session is not waiting for permission' })
     }
 
-    const runtime = createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
-    await runtime.sendPermissionChoice({ bookId: runtimeBookId, choice })
+    const manager = getBookEntryPtyManager()
+    const ptySession = manager.getSession(runtimeBookId)
+    if (!ptySession) {
+      db.close()
+      return reply.code(400).send({ error: 'no PTY session for this book' })
+    }
+
+    // Send the permission choice via PTY keys
+    if (choice === 'allow-once') {
+      // Select "Allow once" (typically the first option)
+      manager.sendKeys(runtimeBookId, ['Enter'])
+    } else {
+      // Select "Deny" — navigate down to deny option and confirm
+      manager.sendKeys(runtimeBookId, ['Down', 'Enter'])
+    }
+
     appendSessionMessage(db, sessionId, {
       role: 'user',
       stream: 'permission',
@@ -316,33 +334,7 @@ export async function registerSessionRoutes(app: FastifyInstance) {
     updateSessionStatus(db, sessionId, 'running', session.currentSkill)
     db.close()
 
-    void (async () => {
-      const captureDb = openDatabase(getDatabasePath())
-      try {
-        const completion = await runTerminalCaptureLoop({
-          db: captureDb,
-          sessionId,
-          bookId: runtimeBookId,
-          runtime,
-          currentSkill: runtimeOptions?.currentSkill ?? session.currentSkill,
-          isComplete: runtimeOptions?.isComplete ?? (runtimeOptions?.completeOnFirstCapture ? ((capture) => !!capture.trim()) : undefined),
-          completeStatus: runtimeOptions?.completeStatus,
-          beforeComplete: runtimeOptions?.beforeComplete
-            ? (capture) => runtimeOptions.beforeComplete!({ db: captureDb, capture, sessionId, bookId: runtimeBookId })
-            : undefined,
-        })
-        if (completion.status !== 'waiting-permission') clearSessionRuntimeOptions(sessionId)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        appendSessionMessage(captureDb, sessionId, { role: 'assistant', stream: 'stderr', content: message })
-        updateSessionStatus(captureDb, sessionId, 'failed', session.currentSkill)
-        clearSessionRuntimeOptions(sessionId)
-        getOrCreateEmitter(sessionId).emit('done', { status: 'failed' })
-      } finally {
-        captureDb.close()
-      }
-    })()
-
+    // No capture loop restart needed — PTY WebSocket stream handles it
     return { handled: true }
   })
 
@@ -357,8 +349,8 @@ export async function registerSessionRoutes(app: FastifyInstance) {
 
     const runtimeBookId = getSessionRuntimeOptions(request.params.sessionId)?.runtimeBookId ?? session.bookId
     if (runtimeBookId) {
-      const runtime = createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
-      await runtime.interrupt({ bookId: runtimeBookId }).catch(() => {})
+      const manager = getBookEntryPtyManager()
+      manager.kill(runtimeBookId)
     }
 
     clearSessionRuntimeOptions(request.params.sessionId)
@@ -437,7 +429,12 @@ export async function registerSessionRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'session has no terminal runtime' })
     }
 
-    const runtime = createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
+    const manager = getBookEntryPtyManager()
+    const ptySession = manager.getSession(runtimeBookId)
+    if (!ptySession) {
+      db.close()
+      return reply.code(400).send({ error: 'no PTY session for this book' })
+    }
 
     const multiFinalMatch = answer.match(/^multi-final:([\d,]*)\|initial:([\d,]*)\|count:(\d+)$/)
     const optionMatch = !multiFinalMatch ? answer.match(/^(\d+)\./) : null
@@ -454,15 +451,15 @@ export async function registerSessionRoutes(app: FastifyInstance) {
         if (opt < count) keys.push('Down')
       }
       keys.push('Enter')
-      await runtime.sendKeys({ bookId: runtimeBookId, keys })
+      manager.sendKeys(runtimeBookId, keys)
     } else if (optionMatch) {
       const optionNumber = parseInt(optionMatch[1])
       const keys: string[] = []
       for (let i = 1; i < optionNumber; i++) keys.push('Down')
       keys.push('Enter')
-      await runtime.sendKeys({ bookId: runtimeBookId, keys })
+      manager.sendKeys(runtimeBookId, keys)
     } else {
-      await runtime.sendText({ bookId: runtimeBookId, text: answer })
+      manager.write(runtimeBookId, answer + '\n')
     }
 
     appendSessionMessage(db, sessionId, { role: 'user', stream: 'question', content: answer })
@@ -470,28 +467,7 @@ export async function registerSessionRoutes(app: FastifyInstance) {
     updateSessionStatus(db, sessionId, 'running', session.currentSkill)
     db.close()
 
-    void (async () => {
-      const captureDb = openDatabase(getDatabasePath())
-      try {
-        const baseline = await runtime.capture({ bookId: runtimeBookId })
-        await runTerminalCaptureLoop({
-          db: captureDb,
-          sessionId,
-          bookId: runtimeBookId,
-          runtime,
-          currentSkill: session.currentSkill,
-          initialCapture: baseline,
-        })
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        appendSessionMessage(captureDb, sessionId, { role: 'assistant', stream: 'stderr', content: message })
-        updateSessionStatus(captureDb, sessionId, 'failed', session.currentSkill)
-        getOrCreateEmitter(sessionId).emit('done', { status: 'failed' })
-      } finally {
-        captureDb.close()
-      }
-    })()
-
+    // No capture loop restart needed — PTY WebSocket stream handles it
     return { answered: true }
   })
 }
