@@ -439,8 +439,23 @@ export async function registerSessionRoutes(app: FastifyInstance) {
 
     const runtime = createTerminalRuntime({ projectRoot: WORKSPACE_ROOT })
 
-    const optionMatch = answer.match(/^(\d+)\./)
-    if (optionMatch) {
+    const multiFinalMatch = answer.match(/^multi-final:([\d,]*)\|initial:([\d,]*)\|count:(\d+)$/)
+    const optionMatch = !multiFinalMatch ? answer.match(/^(\d+)\./) : null
+    if (multiFinalMatch) {
+      const desired = new Set(multiFinalMatch[1].split(',').map(Number).filter(Boolean))
+      const initial = new Set(multiFinalMatch[2].split(',').map(Number).filter(Boolean))
+      const count = parseInt(multiFinalMatch[3])
+      const keys: string[] = []
+      for (let i = 0; i < count; i++) keys.push('Up')
+      for (let opt = 1; opt <= count; opt++) {
+        const wasChecked = initial.has(opt)
+        const wantChecked = desired.has(opt)
+        if (wasChecked !== wantChecked) keys.push('Space')
+        if (opt < count) keys.push('Down')
+      }
+      keys.push('Enter')
+      await runtime.sendKeys({ bookId: runtimeBookId, keys })
+    } else if (optionMatch) {
       const optionNumber = parseInt(optionMatch[1])
       const keys: string[] = []
       for (let i = 1; i < optionNumber; i++) keys.push('Down')
