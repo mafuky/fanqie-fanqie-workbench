@@ -121,4 +121,28 @@ CREATE TABLE IF NOT EXISTS review_checkpoints (
   FOREIGN KEY (book_id) REFERENCES books(id),
   FOREIGN KEY (chapter_id) REFERENCES chapters(id)
 );
+CREATE TABLE IF NOT EXISTS agent_traces (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  book_id TEXT NOT NULL,
+  chapter_id TEXT,
+  action_key TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running',
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  total_prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  total_completion_tokens INTEGER NOT NULL DEFAULT 0,
+  model TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_traces_book ON agent_traces(book_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_trace_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  trace_id INTEGER NOT NULL REFERENCES agent_traces(id),
+  phase_name TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_trace_events_trace ON agent_trace_events(trace_id, id);
 `
