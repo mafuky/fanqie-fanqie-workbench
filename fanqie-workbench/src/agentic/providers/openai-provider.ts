@@ -11,16 +11,41 @@ export function createOpenAiProvider(options: OpenAiProviderOptions): LlmProvide
   return {
     name: 'openai',
     async chat(input: ChatInput): Promise<ChatResult> {
-      const response = await client.chat.completions.create({
+      const tools = input.tools?.map((t) => ({
+        type: 'function' as const,
+        function: { name: t.name, description: t.description, parameters: t.parameters },
+      }))
+      const baseParams = {
         model: input.model,
         messages: input.messages.map(toOpenAiMessage),
-        tools: input.tools?.map((t) => ({
-          type: 'function' as const,
-          function: { name: t.name, description: t.description, parameters: t.parameters },
-        })),
+        tools,
         max_tokens: input.maxTokens,
         temperature: input.temperature,
-      })
+      }
+      if (input.onDelta) {
+        const stream = await client.chat.completions.create({
+          ...baseParams,
+          stream: true,
+          stream_options: { include_usage: true },
+        } as any)
+        let content = ''
+        let finishReason: ChatResult['finishReason'] = 'stop'
+        const toolCalls: ToolCall[] = []
+        let usage = { promptTokens: 0, completionTokens: 0 }
+        for await (const chunk of stream as AsyncIterable<any>) {
+          const choice = chunk.choices?.[0]
+          if (choice?.delta?.content) {
+            content += choice.delta.content
+            input.onDelta(choice.delta.content)
+          }
+          if (choice?.finish_reason) finishReason = choice.finish_reason
+          if (chunk.usage) {
+            usage = { promptTokens: chunk.usage.prompt_tokens, completionTokens: chunk.usage.completion_tokens }
+          }
+        }
+        return { content, toolCalls, usage, finishReason }
+      }
+      const response = await client.chat.completions.create(baseParams)
       const choice = response.choices[0]
       const toolCalls: ToolCall[] = (choice.message.tool_calls ?? []).map((tc: any) => ({
         id: tc.id,

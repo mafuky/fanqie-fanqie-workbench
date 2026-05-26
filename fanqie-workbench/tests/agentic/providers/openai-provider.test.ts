@@ -86,4 +86,24 @@ describe('OpenAiProvider', () => {
     })
     expect(sent[2]).toEqual({ role: 'tool', tool_call_id: 'call_1', name: 'read_file', content: 'file body' })
   })
+
+  it('streams content via onDelta when stream=true', async () => {
+    async function* fakeStream() {
+      yield { choices: [{ delta: { content: 'he' }, finish_reason: null }] }
+      yield { choices: [{ delta: { content: 'llo' }, finish_reason: null }] }
+      yield { choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 4, completion_tokens: 2 } }
+    }
+    mockCreate.mockResolvedValueOnce(fakeStream())
+    const deltas: string[] = []
+    const provider = createOpenAiProvider({ apiKey: 'sk-test' })
+    const result = await provider.chat({
+      model: 'gpt-5',
+      messages: [{ role: 'user', content: 'hi' }],
+      onDelta: (d) => deltas.push(d),
+    })
+    expect(deltas).toEqual(['he', 'llo'])
+    expect(result.content).toBe('hello')
+    expect(result.usage.promptTokens).toBe(4)
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ stream: true, stream_options: { include_usage: true } }))
+  })
 })
