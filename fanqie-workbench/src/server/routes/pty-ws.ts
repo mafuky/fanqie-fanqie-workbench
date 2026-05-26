@@ -100,7 +100,8 @@ export async function registerPtyWsRoutes(app: FastifyInstance) {
       ptySession.emitter.on('exit', onExit)
 
       socket.on('message', (raw: unknown) => {
-        const msg = JSON.parse(String(raw)) as { type: string; data?: string; cols?: number; rows?: number; answer?: string }
+        let msg: { type: string; data?: string; cols?: number; rows?: number; answer?: string }
+        try { msg = JSON.parse(String(raw)) } catch { return }
         switch (msg.type) {
           case 'input':
             if (msg.data) manager.write(bookId, msg.data)

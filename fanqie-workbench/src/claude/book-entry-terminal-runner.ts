@@ -76,7 +76,7 @@ export async function runBookEntryTerminalSession(input: RunBookEntryTerminalSes
     })
 
     // Send the command to the PTY
-    manager.write(BOOK_ENTRY_RUNTIME_BOOK_ID, command + '\n')
+    manager.write(BOOK_ENTRY_RUNTIME_BOOK_ID, command + '\r')
 
     // NO capture loop — the WebSocket route (pty-ws) handles streaming to the frontend.
   } catch (error) {

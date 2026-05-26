@@ -107,10 +107,14 @@ export function createTerminalRuntime(input: { projectRoot: string; runner?: Tmu
 
     async sendText({ bookId, text }) {
       const sessionName = buildTmuxSessionName(bookId)
-      const result = await runner(['send-keys', '-t', sessionName, text, 'Enter'])
-
-      if (result.exitCode !== 0) {
-        throw new Error(result.stderr || `tmux send-keys failed with exit code ${result.exitCode}`)
+      const textResult = await runner(['send-keys', '-t', sessionName, '-l', text])
+      if (textResult.exitCode !== 0) {
+        throw new Error(textResult.stderr || `tmux send-keys (text) failed with exit code ${textResult.exitCode}`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      const enterResult = await runner(['send-keys', '-t', sessionName, 'Enter'])
+      if (enterResult.exitCode !== 0) {
+        throw new Error(enterResult.stderr || `tmux send-keys (enter) failed with exit code ${enterResult.exitCode}`)
       }
     },
 

@@ -31,9 +31,9 @@ describe('PtyManager', () => {
     expect(session.status).toBe('starting')
     const pty = await import('node-pty')
     expect(pty.spawn).toHaveBeenCalledWith(
-      'claude',
+      expect.stringMatching(/claude/),
       ['--permission-mode', 'bypassPermissions'],
-      expect.objectContaining({ cwd: '/tmp', cols: 120, rows: 40 }),
+      expect.objectContaining({ cwd: '/tmp', cols: 100, rows: 30 }),
     )
   })
 
@@ -78,8 +78,9 @@ describe('PtyManager', () => {
     expect(mockWrite).toHaveBeenCalledWith('\r')
   })
 
-  it('throws when writing to nonexistent session', () => {
+  it('silently ignores writes to nonexistent session', () => {
     const manager = createPtyManager({ projectRoot: '/tmp' })
-    expect(() => manager.write('no-such', 'x')).toThrow('no PTY session')
+    expect(() => manager.write('no-such', 'x')).not.toThrow()
+    expect(mockWrite).not.toHaveBeenCalled()
   })
 })

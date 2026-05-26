@@ -15,7 +15,6 @@ import { registerPtyWsRoutes } from './routes/pty-ws.js'
 
 export async function buildServer() {
   const app = Fastify()
-  await app.register(websocket)
   app.get('/health', async () => ({ ok: true }))
   await registerTaskRoutes(app)
   await registerTaskStreamRoutes(app)
@@ -28,6 +27,7 @@ export async function buildServer() {
   await registerMarketScanRoutes(app)
   await registerAccountRoutes(app)
   await registerStorySetupRoutes(app)
+  await app.register(websocket)
   await registerPtyWsRoutes(app)
   return app
 }
@@ -35,6 +35,6 @@ export async function buildServer() {
 const isMainModule = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/.*\//, ''))
 if (isMainModule) {
   const app = await buildServer()
-  await app.listen({ port: 4310, host: '127.0.0.1' })
-  console.log('Server listening on http://127.0.0.1:4310')
+  await app.listen({ port: 4400, host: '127.0.0.1' })
+  console.log('Server listening on http://127.0.0.1:4400')
 }
