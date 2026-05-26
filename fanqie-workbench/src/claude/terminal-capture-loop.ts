@@ -149,19 +149,23 @@ export async function runTerminalCaptureLoop(input: RunTerminalCaptureLoopInput)
   const isComplete = input.isComplete ?? ((capture: string) => {
     if (!capture.trim()) return false
     const lines = capture.split('\n')
-    const hasThinking = lines.some(line => {
-      const t = line.trim()
-      return t.length > 1 && /^[^\w\s]/.test(t) && /…/.test(t) && !/^⏺/.test(t)
-    })
-    if (hasThinking) return false
 
     const sepIndices: number[] = []
     for (let i = lines.length - 1; i >= 0 && sepIndices.length < 2; i--) {
       if (/^─{10,}/.test(lines[i].trim())) sepIndices.push(i)
     }
-    if (sepIndices.length >= 2) {
+
+    const recentStart = Math.max(0, lines.length - 40)
+    const recentLines = lines.slice(recentStart)
+    const hasThinking = recentLines.some(line => {
+      const t = line.trim()
+      return t.length > 1 && /^[^\w\s]/.test(t) && /…/.test(t) && !/^⏺/.test(t)
+    })
+    if (hasThinking) return false
+
+    if (sepIndices.length >= 2 && lines.some(line => /^\s*⏺/.test(line))) {
       for (let i = sepIndices[1] + 1; i < sepIndices[0]; i++) {
-        if (/^\s*❯/.test(lines[i])) return true
+        if (/^\s*❯/.test(lines[i]) && !/^\s*❯\s*\d+\./.test(lines[i])) return true
       }
     }
 
@@ -194,6 +198,15 @@ export async function runTerminalCaptureLoop(input: RunTerminalCaptureLoopInput)
       stablePolls++
     }
     lastMeaningfulLength = meaningful.length
+
+    const captureLines = latestCapture.split('\n')
+    for (let i = captureLines.length - 1; i >= Math.max(0, captureLines.length - 40); i--) {
+      const t = captureLines[i].trim()
+      if (t.length > 1 && /^[^\w\s]/.test(t) && /…/.test(t) && !/^⏺/.test(t)) {
+        getOrCreateEmitter(input.sessionId).emit('thinking', { text: t })
+        break
+      }
+    }
 
     const permissionPrompt = detectPermissionPrompt(latestCapture)
     if (permissionPrompt) {

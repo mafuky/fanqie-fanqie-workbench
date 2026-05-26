@@ -1,6 +1,18 @@
 import { EventEmitter } from 'node:events'
+import { execSync } from 'node:child_process'
 import * as pty from 'node-pty'
 import { PtyEventParser } from './pty-event-parser.js'
+
+function resolveClaudePath(): string {
+  if (process.env.CLAUDE_PATH) return process.env.CLAUDE_PATH
+  try {
+    return execSync('which claude', { encoding: 'utf8' }).trim()
+  } catch {
+    return 'claude'
+  }
+}
+
+const CLAUDE_PATH = resolveClaudePath()
 
 export interface PtySession {
   id: string
@@ -44,12 +56,12 @@ export function createPtyManager(input: { projectRoot: string }): PtyManager {
       const emitter = new EventEmitter()
       const parser = new PtyEventParser()
 
-      const child = pty.spawn('claude', ['--permission-mode', 'bypassPermissions'], {
+      const child = pty.spawn(CLAUDE_PATH, ['--permission-mode', 'bypassPermissions'], {
         name: 'xterm-256color',
         cwd: input.projectRoot,
-        cols: 120,
-        rows: 40,
-        env: { ...process.env, TERM: 'xterm-256color' },
+        cols: 100,
+        rows: 30,
+        env: { ...process.env, TERM: 'xterm-256color', LANG: 'en_US.UTF-8' },
       })
 
       const session: PtySession = { id: bookId, pty: child, emitter, parser, status: 'starting' }
@@ -84,13 +96,13 @@ export function createPtyManager(input: { projectRoot: string }): PtyManager {
 
     write(bookId, data) {
       const session = sessions.get(bookId)
-      if (!session) throw new Error(`no PTY session for bookId=${bookId}`)
+      if (!session) return
       session.pty.write(data)
     },
 
     sendKeys(bookId, keys) {
       const session = sessions.get(bookId)
-      if (!session) throw new Error(`no PTY session for bookId=${bookId}`)
+      if (!session) return
       for (const key of keys) {
         session.pty.write(KEY_MAP[key] ?? key)
       }

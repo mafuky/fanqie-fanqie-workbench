@@ -30,21 +30,30 @@ export function TerminalPanel({
 
     const terminal = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
-      fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
+      fontSize: 13,
+      fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, 'Fira Code', monospace",
+      lineHeight: 1.2,
+      letterSpacing: 0,
       theme: { background: '#1a1a2e' },
-      convertEol: true,
+      convertEol: false,
+      scrollback: 10000,
+      allowProposedApi: true,
     })
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.loadAddon(new WebLinksAddon())
     terminal.open(termRef.current)
-    fitAddon.fit()
+    setTimeout(() => fitAddon.fit(), 0)
     terminalRef.current = terminal
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(`${protocol}//${location.host}/api/sessions/${sessionId}/terminal`)
     wsRef.current = ws
+
+    ws.addEventListener('open', () => {
+      fitAddon.fit()
+      ws.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }))
+    })
 
     ws.addEventListener('message', (event) => {
       const msg = JSON.parse(event.data)

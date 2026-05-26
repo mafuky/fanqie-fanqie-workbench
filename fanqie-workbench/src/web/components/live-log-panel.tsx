@@ -44,6 +44,7 @@ export function LiveLogPanel({
   const [answering, setAnswering] = useState(false)
   const [answerError, setAnswerError] = useState<string | null>(null)
   const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set())
+  const [thinkingText, setThinkingText] = useState<string | null>(null)
   const containerRef = useRef<HTMLPreElement>(null)
   const startRef = useRef(Date.now())
   const seenMessageIdsRef = useRef<Set<number>>(new Set())
@@ -94,6 +95,11 @@ export function LiveLogPanel({
       }
     })
 
+    eventSource.addEventListener('thinking', (event) => {
+      const data = JSON.parse((event as MessageEvent).data) as { text: string }
+      setThinkingText(data.text)
+    })
+
     eventSource.addEventListener('permission-blocked', (event) => {
       const data = JSON.parse((event as MessageEvent).data) as PermissionPromptPayload
       onPermissionBlockedRef.current?.(data)
@@ -101,6 +107,7 @@ export function LiveLogPanel({
 
     eventSource.addEventListener('done', (event) => {
       const data = JSON.parse((event as MessageEvent).data)
+      setThinkingText(null)
       clearInterval(timer)
       onDoneRef.current?.(data.status)
       eventSource.close()
