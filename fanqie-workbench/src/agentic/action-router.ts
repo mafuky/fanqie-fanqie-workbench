@@ -2,10 +2,13 @@ import { loadContextPhase } from './phases/load-context.js'
 import { checkMaterialsPhase } from './phases/check-materials.js'
 import { writeChapterPhase } from './phases/write-chapter.js'
 import { updateTrackingPhase } from './phases/update-tracking.js'
+import { clarifyDirectionPhase } from './phases/clarify-direction.js'
+import { scaffoldBookPhase } from './phases/scaffold-book.js'
 import type { Phase } from './phases/phase.js'
 
 const ACTION_PHASES: Record<string, Phase[]> = {
   'chapter.continue': [loadContextPhase, checkMaterialsPhase, writeChapterPhase, updateTrackingPhase],
+  'book.create': [clarifyDirectionPhase, scaffoldBookPhase],
 }
 
 export function routeAction(actionKey: string): Phase[] {

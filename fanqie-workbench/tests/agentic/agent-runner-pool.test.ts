@@ -44,13 +44,13 @@ describe('AgentRunnerPool', () => {
       bookId: 'b1', chapterId: 'c1',
       bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
       chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
-      phases: [phase], sessionId: 's1', emitter: new EventEmitter(),
+      phases: [phase], actionKey: 'chapter.continue', sessionId: 's1', emitter: new EventEmitter(),
     })
     await expect(pool.start({
       bookId: 'b1', chapterId: 'c2',
       bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
       chapter: { id: 'c2', chapterNumber: 2, title: 't', sourcePath: 'b.md', stage: '待写作' },
-      phases: [phase], sessionId: 's2', emitter: new EventEmitter(),
+      phases: [phase], actionKey: 'chapter.continue', sessionId: 's2', emitter: new EventEmitter(),
     })).rejects.toThrow(/already running/i)
     await waitForFinish(runner1)
   })
@@ -65,13 +65,13 @@ describe('AgentRunnerPool', () => {
       bookId: 'b1', chapterId: 'c1',
       bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
       chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
-      phases: [phase], sessionId: 's1', emitter: new EventEmitter(),
+      phases: [phase], actionKey: 'chapter.continue', sessionId: 's1', emitter: new EventEmitter(),
     })
     await expect(pool.start({
       bookId: 'b2', chapterId: 'c1',
       bookMeta: { id: 'b2', title: 'T2', rootPath: '/tmp/2' },
       chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
-      phases: [phase], sessionId: 's2', emitter: new EventEmitter(),
+      phases: [phase], actionKey: 'chapter.continue', sessionId: 's2', emitter: new EventEmitter(),
     })).rejects.toThrow(/concurrent limit/i)
     await waitForFinish(r1)
   })
@@ -86,14 +86,14 @@ describe('AgentRunnerPool', () => {
       bookId: 'b1', chapterId: 'c1',
       bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
       chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
-      phases: [phase], sessionId: 's1', emitter: new EventEmitter(),
+      phases: [phase], actionKey: 'chapter.continue', sessionId: 's1', emitter: new EventEmitter(),
     })
     await waitForFinish(r1)
     const r2 = await pool.start({
       bookId: 'b2', chapterId: 'c1',
       bookMeta: { id: 'b2', title: 'T2', rootPath: '/tmp/2' },
       chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
-      phases: [phase], sessionId: 's2', emitter: new EventEmitter(),
+      phases: [phase], actionKey: 'chapter.continue', sessionId: 's2', emitter: new EventEmitter(),
     })
     await waitForFinish(r2)
     expect(r2.status).toBe('succeeded')

@@ -1,5 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
+import { mkdir } from 'node:fs/promises'
+import { join, resolve as resolvePath } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import type Database from 'better-sqlite3'
 import type { AgentService } from '../../agentic/agent-service.js'
@@ -98,6 +100,51 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       if (!bookId) return reply.code(404).send({ error: 'session not found' })
       const runner = deps.service.get(bookId)
       return { status: runner?.status ?? 'unknown', currentPhase: runner?.currentPhase ?? null }
+    },
+  )
+
+  app.post<{ Body: { title: string } }>(
+    '/api/agent-sessions/book-create',
+    async (req, reply) => {
+      const { title } = req.body
+      if (!title || /[\\/ ]/.test(title)) {
+        return reply.code(400).send({ error: 'title is required and must not contain slashes' })
+      }
+      // Check duplicate
+      const dup = deps.db.prepare(`SELECT id FROM books WHERE title = ?`).get(title)
+      if (dup) return reply.code(409).send({ error: 'book title already exists' })
+
+      // Compute bookRoot — workspace root is parent of fanqie-workbench
+      const workspaceRoot = process.env.WORKSPACE_ROOT ?? resolvePath(process.cwd(), '..')
+      const bookRoot = join(workspaceRoot, 'novels', title)
+      await mkdir(bookRoot, { recursive: true })
+
+      const bookId = randomUUID()
+      deps.db.prepare(`INSERT INTO books (id, title, root_path) VALUES (?, ?, ?)`).run(bookId, title, bookRoot)
+
+      const sessionId = randomUUID()
+      const emitter = new EventEmitter()
+      sessionEmitters.set(sessionId, emitter)
+      sessionToBook.set(sessionId, bookId)
+      emitter.on('event', (ev: any) => {
+        if (ev.type === 'done') activeBookIds.delete(bookId)
+      })
+      activeBookIds.add(bookId)
+
+      try {
+        const runner = await deps.service.start({
+          actionKey: 'book.create',
+          bookMeta: { id: bookId, title, rootPath: bookRoot },
+          chapter: null,
+          sessionId, emitter,
+        })
+        return { sessionId, bookId, status: runner.status, traceId: runner.traceId }
+      } catch (err: any) {
+        sessionEmitters.delete(sessionId)
+        sessionToBook.delete(sessionId)
+        activeBookIds.delete(bookId)
+        return reply.code(500).send({ error: err.message })
+      }
     },
   )
 }

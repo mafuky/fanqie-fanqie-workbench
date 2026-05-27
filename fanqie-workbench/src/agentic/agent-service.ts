@@ -24,7 +24,7 @@ export interface AgentServiceOptions {
 export interface AgentStartInput {
   actionKey: string
   bookMeta: BookMeta
-  chapter: ChapterMeta
+  chapter: ChapterMeta | null
   sessionId: string
   emitter: EventEmitter
 }
@@ -82,10 +82,11 @@ export function createAgentService(opts: AgentServiceOptions): AgentService {
       const phases = routeAction(input.actionKey)
       return pool.start({
         bookId: input.bookMeta.id,
-        chapterId: input.chapter.id,
+        chapterId: input.chapter?.id ?? null,
         bookMeta: input.bookMeta,
         chapter: input.chapter,
         phases,
+        actionKey: input.actionKey,
         sessionId: input.sessionId,
         emitter: input.emitter,
       })

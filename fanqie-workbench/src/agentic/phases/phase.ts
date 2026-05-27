@@ -17,9 +17,9 @@ export interface ChapterMeta {
 export interface PhaseContext {
   bookId: string
   bookRoot: string
-  chapterId: string
+  chapterId: string | null
   bookMeta: BookMeta
-  chapter: ChapterMeta
+  chapter: ChapterMeta | null
   previousPhaseResults: Record<string, unknown>
 }
 

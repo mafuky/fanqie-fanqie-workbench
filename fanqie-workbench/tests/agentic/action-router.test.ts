@@ -9,6 +9,11 @@ describe('routeAction', () => {
     ])
   })
 
+  it('returns phase sequence for book.create', () => {
+    const phases = routeAction('book.create')
+    expect(phases.map((p) => p.name)).toEqual(['clarify-direction', 'scaffold-book'])
+  })
+
   it('throws for unknown action', () => {
     expect(() => routeAction('chapter.unknown')).toThrow(/unknown action/i)
   })
