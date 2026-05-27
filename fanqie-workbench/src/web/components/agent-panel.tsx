@@ -4,6 +4,8 @@ type Event =
   | { type: 'history'; events: Event[] }
   | { type: 'phase-start'; phase: string }
   | { type: 'phase-done'; phase: string }
+  | { type: 'delta'; phase: string; content: string }
+  | { type: 'tool-call-delta'; phase: string; toolCallIndex: number; id?: string; name?: string; argsFragment?: string }
   | { type: 'message'; phase: string; role: string; content: string }
   | { type: 'tool-call'; phase: string; toolCallId: string; name: string; args: any }
   | { type: 'tool-result'; phase: string; toolCallId: string; name: string; result: string; ok: boolean }
@@ -12,8 +14,16 @@ type Event =
   | { type: 'error'; message: string }
   | { type: 'done'; status: string }
 
+interface InProgressTool {
+  id: string
+  name: string
+  argsBuffer: string
+}
+
 export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: (status: string) => void }) {
   const [events, setEvents] = useState<Event[]>([])
+  const [textBuffers, setTextBuffers] = useState<Record<string, string>>({})
+  const [toolBuffers, setToolBuffers] = useState<Record<string, Record<number, InProgressTool>>>({})
   const wsRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
@@ -24,10 +34,42 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
       const msg = JSON.parse(e.data)
       if (msg.type === 'history') {
         setEvents(msg.events)
-      } else {
-        setEvents((prev) => [...prev, msg])
-        if (msg.type === 'done') onDone?.(msg.status)
+        return
       }
+      if (msg.type === 'delta') {
+        setTextBuffers((prev) => ({ ...prev, [msg.phase]: (prev[msg.phase] ?? '') + msg.content }))
+        return
+      }
+      if (msg.type === 'tool-call-delta') {
+        setToolBuffers((prev) => {
+          const phaseMap = { ...(prev[msg.phase] ?? {}) }
+          const existing = phaseMap[msg.toolCallIndex] ?? { id: '', name: '', argsBuffer: '' }
+          phaseMap[msg.toolCallIndex] = {
+            id: msg.id ?? existing.id,
+            name: msg.name ?? existing.name,
+            argsBuffer: existing.argsBuffer + (msg.argsFragment ?? ''),
+          }
+          return { ...prev, [msg.phase]: phaseMap }
+        })
+        return
+      }
+      if (msg.type === 'message') {
+        // Final message replaces streaming buffer for this phase
+        setTextBuffers((prev) => { const next = { ...prev }; delete next[msg.phase]; return next })
+      }
+      if (msg.type === 'tool-call' || msg.type === 'tool-result') {
+        // Clear the in-progress tool buffer once the full event arrives
+        setToolBuffers((prev) => {
+          const phaseMap = { ...(prev[msg.phase] ?? {}) }
+          // Clear the matching entry by id
+          for (const idx of Object.keys(phaseMap)) {
+            if (phaseMap[Number(idx)].id === msg.toolCallId) delete phaseMap[Number(idx)]
+          }
+          return { ...prev, [msg.phase]: phaseMap }
+        })
+      }
+      setEvents((prev) => [...prev, msg])
+      if (msg.type === 'done') onDone?.(msg.status)
     })
     return () => ws.close()
   }, [sessionId, onDone])
@@ -69,22 +111,47 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
           </div>
         </div>
       )}
+
       {Object.entries(grouped).map(([phase, evs]) => (
         <div key={phase} style={{ marginBottom: 12 }}>
           <div style={{ fontWeight: 700 }}>▶ {phase}</div>
           {evs.map((ev, i) => (
             <div key={i} style={{ paddingLeft: 16 }}>
-              {ev.type === 'tool-call' && <span>📞 {ev.name}({JSON.stringify(ev.args)})</span>}
+              {ev.type === 'tool-call' && <span>📞 {ev.name}({JSON.stringify(ev.args).slice(0, 200)})</span>}
               {ev.type === 'tool-result' && <span>{ev.ok ? '✓' : '✗'} {ev.name}: {ev.result.slice(0, 80)}</span>}
-              {ev.type === 'message' && <span>💬 {ev.content.slice(0, 200)}</span>}
+              {ev.type === 'message' && <span>💬 {ev.content.slice(0, 400)}</span>}
               {ev.type === 'file-updated' && <span>📝 {ev.path}</span>}
               {ev.type === 'error' && <span style={{ color: 'red' }}>{ev.message}</span>}
               {ev.type === 'phase-done' && <span>✓ done</span>}
               {ev.type === 'done' && <span>● {ev.status}</span>}
             </div>
           ))}
+          {/* In-progress streaming text */}
+          {textBuffers[phase] && (
+            <div style={{ paddingLeft: 16, opacity: 0.85, whiteSpace: 'pre-wrap' }}>
+              💬 {textBuffers[phase]}<span style={{ animation: 'blink 1s infinite' }}>▊</span>
+            </div>
+          )}
+          {/* In-progress streaming tool args */}
+          {toolBuffers[phase] && Object.entries(toolBuffers[phase]).map(([idx, tool]) => (
+            <div key={`tool-${idx}`} style={{ paddingLeft: 16, opacity: 0.85, whiteSpace: 'pre-wrap' }}>
+              📞 {tool.name}(<span>{tool.argsBuffer}</span><span style={{ animation: 'blink 1s infinite' }}>▊</span>
+            </div>
+          ))}
         </div>
       ))}
+
+      {/* Render in-progress buffers for phases not yet in grouped (phase-start not yet fired) */}
+      {Object.entries(textBuffers)
+        .filter(([phase]) => !grouped[phase])
+        .map(([phase, text]) => (
+          <div key={`buf-${phase}`} style={{ marginBottom: 12 }}>
+            <div style={{ fontWeight: 700 }}>▶ {phase}</div>
+            <div style={{ paddingLeft: 16, opacity: 0.85, whiteSpace: 'pre-wrap' }}>
+              💬 {text}<span style={{ animation: 'blink 1s infinite' }}>▊</span>
+            </div>
+          </div>
+        ))}
     </div>
   )
 }
