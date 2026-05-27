@@ -1,18 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { AgentPanel } from '../components/agent-panel.js'
 import { ChapterEditor } from '../components/chapter-editor.js'
-import { ClaudeExecutionPanel } from '../components/claude-execution-panel.js'
 import { spacing, fontSize, radius } from '../styles/tokens.js'
 
 type ChapterRow = { id: string; chapter_number: number; title: string; stage: string }
-type SessionRow = { id: string; status: string; bookId?: string | null; currentSkill: string | null; chapterId: string | null; pendingQuestionJson?: string | null }
 type BookDetail = { book: { id: string; title: string; root_path: string }; chapters: ChapterRow[]; summary?: { activeSessionId?: string | null; activeChapterId?: string | null } }
 
 export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?: () => void }) {
   const [detail, setDetail] = useState<BookDetail | null>(null)
-  const [sessions, setSessions] = useState<SessionRow[]>([])
   const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
-  const [activeActionLabel, setActiveActionLabel] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -38,7 +35,6 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
       if (!publicationsResponse.ok) throw new Error(publicationsBody.error || '加载发布信息失败')
 
       setDetail(nextDetail)
-      setSessions(sessionsBody.sessions || [])
       setSelectedChapterId((current) => current || nextDetail.summary?.activeChapterId || nextDetail.chapters?.[0]?.id || null)
       setActiveSessionId(nextDetail.summary?.activeSessionId || null)
       if (refreshEditor) setEditorReloadKey((value) => value + 1)
@@ -51,17 +47,14 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
 
   useEffect(() => {
     setDetail(null)
-    setSessions([])
     setSelectedChapterId(null)
     setActiveSessionId(null)
-    setActiveActionLabel('')
     setEditorReloadKey(0)
     setLoading(true)
     void load()
   }, [bookId])
 
   const selectedChapter = detail?.chapters.find((chapter) => chapter.id === selectedChapterId) ?? null
-  const activeSession = useMemo(() => sessions.find((session) => session.id === activeSessionId) ?? null, [sessions, activeSessionId])
 
   const scanChapters = async () => {
     setScanning(true)
@@ -78,10 +71,10 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
     }
   }
 
-  const startAction = async (actionKey: string, label: string) => {
+  const startAction = async (actionKey: string) => {
     if (!selectedChapterId) return
     setActionError(null)
-    const response = await fetch('/api/actions', {
+    const response = await fetch('/api/agent-sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ actionKey, bookId, chapterId: selectedChapterId }),
@@ -91,9 +84,7 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
       setActionError(body.error || '启动失败')
       return
     }
-    setActiveSessionId(body.session.id)
-    setActiveActionLabel(label)
-    setSessions((current) => [{ ...body.session, bookId, chapterId: selectedChapterId, currentSkill: actionKey, pendingQuestionJson: null }, ...current.filter((session) => session.id !== body.session.id)])
+    setActiveSessionId(body.sessionId)
   }
 
   const refreshAfterSessionChange = async () => {
@@ -149,22 +140,20 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
 
           <section>
             <div style={{ display: 'flex', gap: spacing.sm, marginBottom: spacing.md }}>
-              <button onClick={() => void startAction('chapter.continue', '继续写本章')} disabled={!selectedChapter}>继续写本章</button>
-              <button onClick={() => void startAction('chapter.deslop', '去 AI 味本章')} disabled={!selectedChapter}>去 AI 味本章</button>
-              <button onClick={() => void startAction('chapter.review', '审稿本章')} disabled={!selectedChapter}>审稿本章</button>
+              <button onClick={() => void startAction('chapter.continue')} disabled={!selectedChapter}>继续写本章</button>
+              <button onClick={() => void startAction('chapter.deslop')} disabled={!selectedChapter}>去 AI 味本章</button>
+              <button onClick={() => void startAction('chapter.review')} disabled={!selectedChapter}>审稿本章</button>
             </div>
             {actionError && <div style={{ color: 'var(--red)', marginBottom: spacing.sm }}>{actionError}</div>}
             {selectedChapterId && <ChapterEditor key={selectedChapterId} chapterId={selectedChapterId} reloadKey={editorReloadKey} onSaved={() => void load()} />}
           </section>
 
-          <ClaudeExecutionPanel
-            sessionId={activeSessionId}
-            sessionStatus={activeSession?.status ?? null}
-            actionLabel={activeActionLabel || activeSession?.currentSkill || undefined}
-            onDone={() => void refreshAfterSessionChange()}
-            onInterrupted={() => void refreshAfterSessionChange()}
-            onAnswerSubmitted={() => void refreshAfterSessionChange()}
-          />
+          {activeSessionId && (
+            <AgentPanel
+              sessionId={activeSessionId}
+              onDone={() => void refreshAfterSessionChange()}
+            />
+          )}
         </main>
       )}
     </div>
