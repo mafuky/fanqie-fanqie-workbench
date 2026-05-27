@@ -3,12 +3,12 @@ import type { Phase } from './phase.js'
 export const scaffoldBookPhase: Phase = {
   name: 'scaffold-book',
   tools: ['read_file', 'write_file'],
-  maxIterations: 12,
+  maxIterations: 16,
   systemPrompt(ctx) {
     return [
       `你正在为《${ctx.bookMeta.title}》搭建初始项目结构。bookRoot = ${ctx.bookRoot}`,
       ``,
-      `先 read_file 设定/方向.md 拿到方向。然后依次用 write_file 写以下 7 个文件：`,
+      `先 read_file 设定/方向.md 拿到方向。然后依次用 write_file 写以下 9 个文件：`,
       ``,
       `1. 大纲/总纲.md     — 3-5 卷大纲，每卷一段 200 字左右`,
       `2. 设定/世界观.md   — 时代背景、地理、势力、规则（200-400 字）`,
@@ -17,6 +17,8 @@ export const scaffoldBookPhase: Phase = {
       `5. 追踪/上下文.md   — 写：本书开始（无任何已发生剧情）`,
       `6. 追踪/伏笔.md     — 写：伏笔追踪表（空列）`,
       `7. 追踪/时间线.md   — 写：时间线追踪表（空列）`,
+      `8. 大纲/细纲_第001章.md — 第一章细纲：场景设定、出场人物、关键事件、信息揭示、章末钩子，约 300-500 字`,
+      `9. 正文/第001章.md       — 仅写一个占位标题行 \`# 第一章\` 和一行注释 \`<!-- 正文待 agent 续写 -->\`，不要写正文`,
       ``,
       `每个文件都必须用 write_file 实际写入。完成后用一句话报告。`,
     ].join('\n')

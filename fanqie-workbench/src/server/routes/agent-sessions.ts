@@ -127,7 +127,23 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       sessionEmitters.set(sessionId, emitter)
       sessionToBook.set(sessionId, bookId)
       emitter.on('event', (ev: any) => {
-        if (ev.type === 'done') activeBookIds.delete(bookId)
+        if (ev.type === 'done') {
+          activeBookIds.delete(bookId)
+          if (ev.status === 'succeeded') {
+            try {
+              // Insert chapter 1 row so the user can immediately continue-writing
+              const existing = deps.db.prepare(`SELECT id FROM chapters WHERE book_id = ? AND chapter_number = ?`).get(bookId, 1)
+              if (!existing) {
+                const chapterId = randomUUID()
+                deps.db.prepare(
+                  `INSERT INTO chapters (id, book_id, chapter_number, title, source_path, stage) VALUES (?, ?, ?, ?, ?, ?)`,
+                ).run(chapterId, bookId, 1, '第一章', '正文/第001章.md', '待写作')
+              }
+            } catch (err) {
+              console.error('[book-create] failed to insert chapter 1:', err)
+            }
+          }
+        }
       })
       activeBookIds.add(bookId)
 
