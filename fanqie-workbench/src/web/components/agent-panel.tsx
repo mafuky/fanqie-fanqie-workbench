@@ -32,6 +32,24 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
     return () => ws.close()
   }, [sessionId, onDone])
 
+  const pendingQuestion = (() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i]
+      if (e.type === 'question') return e
+      if (e.type === 'message' || e.type === 'tool-result') return null
+    }
+    return null
+  })()
+
+  async function answer(label: string) {
+    await fetch(`/api/agent-sessions/${sessionId}/answer`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ answer: label }),
+    })
+    setEvents((prev) => [...prev, { type: 'message' as const, phase: 'system', role: 'user', content: `[answered] ${label}` }])
+  }
+
   const grouped: Record<string, Event[]> = {}
   let currentPhase = 'init'
   for (const ev of events) {
@@ -41,6 +59,16 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
 
   return (
     <div data-testid="agent-panel" style={{ fontFamily: 'monospace', fontSize: 13 }}>
+      {pendingQuestion && pendingQuestion.type === 'question' && (
+        <div role="dialog" style={{ border: '2px solid #007', padding: 12, marginBottom: 12, background: '#1a1a2e' }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>{pendingQuestion.question}</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {pendingQuestion.options.map((opt) => (
+              <button key={opt.label} onClick={() => answer(opt.label)}>{opt.label}</button>
+            ))}
+          </div>
+        </div>
+      )}
       {Object.entries(grouped).map(([phase, evs]) => (
         <div key={phase} style={{ marginBottom: 12 }}>
           <div style={{ fontWeight: 700 }}>▶ {phase}</div>

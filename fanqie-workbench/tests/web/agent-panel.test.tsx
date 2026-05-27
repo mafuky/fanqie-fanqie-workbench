@@ -36,4 +36,15 @@ describe('AgentPanel', () => {
     })
     expect(screen.getByText(/write_file/)).toBeTruthy()
   })
+
+  it('shows question card and POSTs answer on click', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as any)
+    render(<AgentPanel sessionId="s9" />)
+    await act(async () => {
+      FakeSocket.last?.fire('message', { data: JSON.stringify({ type: 'question', question: '继续吗？', options: [{ label: '继续' }, { label: '终止' }], multiSelect: false }) })
+    })
+    const { fireEvent } = await import('@testing-library/react')
+    fireEvent.click(screen.getByText('继续'))
+    expect(fetchSpy).toHaveBeenCalledWith('/api/agent-sessions/s9/answer', expect.objectContaining({ method: 'POST' }))
+  })
 })
