@@ -1,9 +1,6 @@
 import type Database from 'better-sqlite3'
-import { buildActionCommand } from '../actions/action-command-builder.js'
 import { getActionBinding, normalizeActionKey, type ActionKey } from '../actions/action-registry.js'
-import { runTerminalSessionCommand } from '../claude/terminal-session-runner.js'
 import { createSession, type SessionRecord } from '../db/repositories/sessions-repo.js'
-import { createChapterCompleteReviewCheckpoint } from './review-checkpoint-service.js'
 
 export type ChapterActionContext = {
   id: string
@@ -56,41 +53,6 @@ export function startChapterActionSession(input: {
     bookId: input.bookId,
     chapterId: input.chapterId,
     currentSkill: actionKey,
-  })
-
-  const command = buildActionCommand({
-    actionKey,
-    bookTitle: chapter.book_title,
-    bookRoot: chapter.book_root,
-    chapterNumber: chapter.chapter_number,
-    chapterTitle: chapter.title,
-    chapterPath: chapter.source_path,
-    userHint: input.userHint,
-  })
-
-  const shouldCreateReview = actionKey === 'chapter.continue'
-  void runTerminalSessionCommand({
-    databasePath: input.databasePath,
-    sessionId: session.id,
-    bookId: input.bookId,
-    command,
-    completeStatus: shouldCreateReview ? 'waiting-review' : 'succeeded',
-    currentSkill: actionKey,
-    beforeComplete: shouldCreateReview
-      ? async ({ db }) => {
-          createChapterCompleteReviewCheckpoint(db, {
-            sessionId: session.id,
-            chapter: {
-              id: chapter.id,
-              bookId: chapter.book_id,
-              bookRoot: chapter.book_root,
-              chapterNumber: chapter.chapter_number,
-              chapterTitle: chapter.title,
-              chapterPath: chapter.source_path,
-            },
-          })
-        }
-      : undefined,
   })
 
   return { session, chapter, actionKey }
