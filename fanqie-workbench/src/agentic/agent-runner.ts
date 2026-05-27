@@ -47,7 +47,9 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
 
   function emit(ev: AgentEvent) {
     opts.emitter.emit('event', ev)
-    opts.traceStore.appendEvent(traceId, { phase: currentPhase ?? 'system', eventType: ev.type, payload: ev })
+    if (ev.type !== 'delta' && ev.type !== 'tool-call-delta') {
+      opts.traceStore.appendEvent(traceId, { phase: currentPhase ?? 'system', eventType: ev.type, payload: ev })
+    }
   }
 
   function checkCancelled() {
@@ -79,7 +81,20 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
           for (let iter = 0; iter < phase.maxIterations; iter++) {
             checkCancelled()
             const tools = opts.toolRegistry.listFiltered(phase.tools)
-            const result = await opts.provider.chat({ model: opts.model, messages, tools })
+            const result = await opts.provider.chat({
+              model: opts.model,
+              messages,
+              tools,
+              onDelta: (d) => emit({ type: 'delta', phase: phase.name, content: d }),
+              onToolCallDelta: (d) => emit({
+                type: 'tool-call-delta',
+                phase: phase.name,
+                toolCallIndex: d.index,
+                id: d.id,
+                name: d.name,
+                argsFragment: d.argsFragment,
+              }),
+            })
             opts.traceStore.addUsage(traceId, result.usage)
             emit({ type: 'message', phase: phase.name, role: 'assistant', content: result.content })
             lastResult = result
