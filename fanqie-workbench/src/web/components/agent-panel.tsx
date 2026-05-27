@@ -25,6 +25,17 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
   const [textBuffers, setTextBuffers] = useState<Record<string, string>>({})
   const [toolBuffers, setToolBuffers] = useState<Record<string, Record<number, InProgressTool>>>({})
   const wsRef = useRef<WebSocket | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    // Auto-scroll to bottom when content grows, unless user has scrolled up away
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distanceFromBottom < 80) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [events, textBuffers, toolBuffers])
 
   useEffect(() => {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -100,9 +111,22 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
   }
 
   return (
-    <div data-testid="agent-panel" style={{ fontFamily: 'monospace', fontSize: 13 }}>
+    <div
+      data-testid="agent-panel"
+      ref={scrollRef}
+      style={{
+        fontFamily: 'monospace',
+        fontSize: 13,
+        maxHeight: 520,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        wordBreak: 'break-word',
+        overflowWrap: 'anywhere',
+        padding: 8,
+      }}
+    >
       {pendingQuestion && pendingQuestion.type === 'question' && (
-        <div role="dialog" style={{ border: '2px solid #007', padding: 12, marginBottom: 12, background: '#1a1a2e' }}>
+        <div role="dialog" style={{ position: 'sticky', top: 0, zIndex: 1, border: '2px solid #007', padding: 12, marginBottom: 12, background: '#1a1a2e' }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>{pendingQuestion.question}</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {pendingQuestion.options.map((opt) => (
