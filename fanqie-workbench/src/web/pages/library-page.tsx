@@ -102,7 +102,10 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
 
       <BookCreationModal
         open={bookCreationOpen}
-        onClose={() => setBookCreationOpen(false)}
+        onClose={() => {
+          setBookCreationOpen(false)
+          void loadBooks()
+        }}
         onCreated={(_bookId) => {
           setBookCreationOpen(false)
           void loadBooks()
