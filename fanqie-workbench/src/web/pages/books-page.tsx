@@ -789,8 +789,10 @@ export function BooksPage() {
       <BookCreationModal
         open={bookCreationOpen}
         onClose={() => setBookCreationOpen(false)}
-        onSubmit={handleCreateBook}
-        loading={bookCreationLoading}
+        onCreated={(_bookId) => {
+          setBookCreationOpen(false)
+          void loadBooks()
+        }}
       />
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.lg, marginBottom: spacing.xl }}>
