@@ -1,13 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
-// Mock TerminalPanel to avoid xterm/WebSocket dependencies in jsdom
-vi.mock('../../src/web/components/terminal-panel.js', () => ({
-  TerminalPanel: ({ sessionId, onDone }: { sessionId: string; onDone?: (status: string) => void }) => (
-    <div data-testid="mock-terminal-panel">Terminal: {sessionId}</div>
-  ),
-}))
-
 import { LibraryPage } from '../../src/web/pages/library-page.js'
 
 class MockEventSource {
