@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, cleanup, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, cleanup, waitFor, act } from '@testing-library/react'
 import { BooksPage } from '../../src/web/pages/books-page.js'
 
 const toastStub = { success: vi.fn(), error: vi.fn(), info: vi.fn() }
@@ -7,6 +7,18 @@ vi.mock('../../src/web/components/ui/toast.js', () => ({
   useToast: () => toastStub,
   ToastProvider: ({ children }: any) => children,
 }))
+
+class FakeSocket {
+  static last: FakeSocket | null = null
+  readyState = 0
+  listeners: Record<string, ((e: any) => void)[]> = {}
+  sent: any[] = []
+  constructor(public url: string) { FakeSocket.last = this }
+  addEventListener(type: string, cb: (e: any) => void) { (this.listeners[type] ??= []).push(cb) }
+  send(d: string) { this.sent.push(JSON.parse(d)) }
+  close() {}
+  fire(type: string, evt: any) { (this.listeners[type] ?? []).forEach((cb) => cb(evt)) }
+}
 
 class MockEventSource {
   static instances: MockEventSource[] = []
@@ -33,7 +45,9 @@ class MockEventSource {
 
 describe('BooksPage book entry', () => {
   beforeEach(() => {
+    FakeSocket.last = null
     MockEventSource.instances = []
+    ;(globalThis as any).WebSocket = FakeSocket as any
     ;(globalThis as any).EventSource = MockEventSource as any
     localStorage.clear()
   })
@@ -63,41 +77,12 @@ describe('BooksPage book entry', () => {
     expect((await screen.findByLabelText('开书想法')).getAttribute('value') || (await screen.findByLabelText('开书想法') as HTMLTextAreaElement).value).toContain('现代悬疑复仇文，强反转')
   })
 
-  it('shows staged book-entry progress with full generated content', async () => {
-    ;(globalThis as any).fetch = vi.fn(async (input: string) => {
+  it('submits POST /api/agent-sessions/book-create and renders AgentPanel', async () => {
+    ;(globalThis as any).fetch = vi.fn(async (input: string, init?: RequestInit) => {
       if (input === '/api/books') return { ok: true, json: async () => ({ books: [] }) }
-      if (input === '/api/sessions') return { ok: true, json: async () => ({ session: { id: 'book-entry-1', kind: 'prompt', status: 'running' } }) }
-      return { ok: true, json: async () => ({}) }
-    })
-
-    render(<BooksPage />)
-
-    fireEvent.click(await screen.findByText('新建一本书'))
-    fireEvent.change(await screen.findByLabelText('开书想法'), { target: { value: '现代悬疑复仇文，强反转' } })
-    fireEvent.click(screen.getByText('开始生成'))
-
-    const stream = await waitFor(() => {
-      const instance = MockEventSource.instances.find((candidate) => candidate.url.includes('/api/sessions/book-entry-1/stream'))
-      expect(instance).toBeTruthy()
-      return instance
-    })
-    stream?.onmessage?.({ data: JSON.stringify({ stream: 'stdout', chunk: '书名：雾港疑局\n简介：都市连环失踪案背后的复仇棋局\n大纲：第一卷雾港失踪案\n章节目录：\n第1章 雾夜失踪' }) } as MessageEvent)
-
-    expect((await screen.findAllByText('执行日志')).length).toBe(1)
-    expect((await screen.findAllByText('生成书名')).length).toBeGreaterThan(0)
-    expect((await screen.findAllByText('生成简介')).length).toBeGreaterThan(0)
-    expect((await screen.findAllByText('生成大纲')).length).toBeGreaterThan(0)
-    expect((await screen.findAllByText('生成章节目录')).length).toBeGreaterThan(0)
-    expect((await screen.findAllByText('雾港疑局')).length).toBeGreaterThan(0)
-    expect(await screen.findByText('都市连环失踪案背后的复仇棋局')).toBeTruthy()
-    expect(await screen.findByText('第一卷雾港失踪案')).toBeTruthy()
-    expect(await screen.findByText('第1章 雾夜失踪')).toBeTruthy()
-  })
-
-  it('submits a book-entry session from the new book modal', async () => {
-    ;(globalThis as any).fetch = vi.fn(async (input: string) => {
-      if (input === '/api/books') return { ok: true, json: async () => ({ books: [] }) }
-      if (input === '/api/sessions') return { ok: true, json: async () => ({ session: { id: 'book-entry-1', kind: 'prompt', status: 'running' } }) }
+      if (input === '/api/agent-sessions/book-create' && init?.method === 'POST') {
+        return { ok: true, json: async () => ({ sessionId: 'book-agent-1', bookId: 'new-book-1', status: 'running', traceId: 'trace-1' }) }
+      }
       return { ok: true, json: async () => ({}) }
     })
 
@@ -108,17 +93,35 @@ describe('BooksPage book entry', () => {
     fireEvent.click(screen.getByText('开始生成'))
 
     await waitFor(() => {
-      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/sessions', expect.objectContaining({
+      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/agent-sessions/book-create', expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({
-          kind: 'prompt',
-          currentSkill: 'book-entry',
-          idea: '现代悬疑复仇文，强反转',
-        }),
+        body: JSON.stringify({ title: '现代悬疑复仇文，强反转' }),
       }))
     })
 
-    expect(await screen.findByText('当前执行')).toBeTruthy()
+    // AgentPanel should mount with the new sessionId
+    await waitFor(() => {
+      expect(FakeSocket.last?.url).toContain('book-agent-1')
+    })
+    expect(await screen.findByTestId('agent-panel')).toBeTruthy()
+  })
+
+  it('shows inline error when POST returns 4xx', async () => {
+    ;(globalThis as any).fetch = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input === '/api/books') return { ok: true, json: async () => ({ books: [] }) }
+      if (input === '/api/agent-sessions/book-create' && init?.method === 'POST') {
+        return { ok: false, json: async () => ({ error: '书名已存在' }) }
+      }
+      return { ok: true, json: async () => ({}) }
+    })
+
+    render(<BooksPage />)
+
+    fireEvent.click(await screen.findByText('新建一本书'))
+    fireEvent.change(await screen.findByLabelText('开书想法'), { target: { value: '重名书' } })
+    fireEvent.click(screen.getByText('开始生成'))
+
+    expect(await screen.findByText('书名已存在')).toBeTruthy()
   })
 
   it('opens chapter action menu with advanced actions', async () => {
@@ -185,69 +188,19 @@ describe('BooksPage book entry', () => {
     })
   })
 
-  it('keeps only the final book-entry payload out of multi-turn history', async () => {
-    ;(globalThis as any).fetch = vi.fn(async (input: string) => {
-      if (input === '/api/books') return { ok: true, json: async () => ({ books: [] }) }
-      if (input === '/api/sessions') return { ok: true, json: async () => ({ session: { id: 'book-entry-1', kind: 'prompt', status: 'running' } }) }
-      return { ok: true, json: async () => ({}) }
-    })
-
-    render(<BooksPage />)
-
-    fireEvent.click(await screen.findByText('新建一本书'))
-    fireEvent.change(await screen.findByLabelText('开书想法'), { target: { value: '现代悬疑复仇文，强反转' } })
-    fireEvent.click(screen.getByText('开始生成'))
-
-    const stream = await waitFor(() => {
-      const instance = MockEventSource.instances.find((candidate) => candidate.url.includes('/api/sessions/book-entry-1/stream'))
-      expect(instance).toBeTruthy()
-      return instance
-    })
-    stream?.onmessage?.({ data: JSON.stringify({ id: 1, stream: 'stdout', chunk: '这个方向需要继续确认\n' }) } as MessageEvent)
-    stream?.onmessage?.({ data: JSON.stringify({ id: 2, stream: 'question', chunk: '纯爽' }) } as MessageEvent)
-    stream?.onmessage?.({ data: JSON.stringify({ id: 3, stream: 'stdout', chunk: '书名：最终书名\n简介：最终简介\n大纲：最终大纲\n章节目录：\n第1章 第一章' }) } as MessageEvent)
-    stream?.onmessage?.({ data: JSON.stringify({ id: 3, stream: 'stdout', chunk: '书名：最终书名\n简介：最终简介\n大纲：最终大纲\n章节目录：\n第1章 第一章' }) } as MessageEvent)
-
-    expect(await screen.findByText('最终书名')).toBeTruthy()
-    expect(await screen.findByText('最终简介')).toBeTruthy()
-    expect(await screen.findByText('最终大纲')).toBeTruthy()
-    expect(await screen.findByText('第1章 第一章')).toBeTruthy()
-    expect(screen.queryByText('这个方向需要继续确认')).toBeTruthy()
-    expect(screen.queryByText('纯爽')).toBeTruthy()
-    expect(screen.queryByText((content) => content.includes('第1章 第一章书名：最终书名'))).toBeNull()
-  })
-
-  it('reloads books after book-entry session completes via scan', async () => {
+  it('reloads books after agent succeeds', async () => {
     let booksCallCount = 0
     ;(globalThis as any).fetch = vi.fn(async (input: string, init?: RequestInit) => {
       if (input === '/api/books') {
-        booksCallCount += 1
+        booksCallCount++
         if (booksCallCount <= 1) {
           return { ok: true, json: async () => ({ books: [] }) }
         }
         return { ok: true, json: async () => ({ books: [{ id: 'book-1', title: '雾港疑局', root_path: '/tmp/book-1', account_id: null }] }) }
       }
-      if (input === '/api/sessions') {
-        return { ok: true, json: async () => ({ session: { id: 'book-entry-1', kind: 'prompt', status: 'running' } }) }
+      if (input === '/api/agent-sessions/book-create' && init?.method === 'POST') {
+        return { ok: true, json: async () => ({ sessionId: 'book-agent-1', bookId: 'book-1', status: 'running', traceId: 'trace-1' }) }
       }
-      if (input === '/api/books/scan' && init?.method === 'POST') {
-        return { ok: true, json: async () => ({ bookCount: 1, chapterCount: 1 }) }
-      }
-      if (input === '/api/books/book-1') {
-        return { ok: true, json: async () => ({
-          book: { id: 'book-1', title: '雾港疑局' },
-          chapters: [{ id: 'ch-1', chapter_number: 1, title: '雾夜失踪', stage: '待写作' }],
-          summary: {
-            totalChapters: 1,
-            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '发布中': 0, '已发布': 0 },
-            publishableCount: 0,
-            activeSessionId: null,
-            activeChapterId: null,
-          },
-        }) }
-      }
-      if (input === '/api/books/book-1/sessions') return { ok: true, json: async () => ({ sessions: [] }) }
-      if (input === '/api/books/book-1/publications') return { ok: true, json: async () => ({ publications: [] }) }
       return { ok: true, json: async () => ({}) }
     })
 
@@ -257,16 +210,12 @@ describe('BooksPage book entry', () => {
     fireEvent.change(await screen.findByLabelText('开书想法'), { target: { value: '现代悬疑复仇文，强反转' } })
     fireEvent.click(screen.getByText('开始生成'))
 
-    const stream = await waitFor(() => {
-      const instance = MockEventSource.instances.find((candidate) => candidate.url.includes('/api/sessions/book-entry-1/stream'))
-      expect(instance).toBeTruthy()
-      return instance
-    })
-    ;(stream as any)?.dispatchDone?.('succeeded')
+    await waitFor(() => expect(FakeSocket.last?.url).toContain('book-agent-1'))
 
-    await waitFor(() => {
-      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/books/scan', expect.objectContaining({ method: 'POST' }))
+    await act(async () => {
+      FakeSocket.last?.fire('message', { data: JSON.stringify({ type: 'done', status: 'succeeded' }) })
     })
+
     await waitFor(() => {
       expect(booksCallCount).toBeGreaterThanOrEqual(2)
     })

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 import { BookCreationModal } from '../components/book-creation-modal.js'
-import { ClaudeExecutionPanel } from '../components/claude-execution-panel.js'
 import { spacing, fontSize, radius } from '../styles/tokens.js'
 
 type Book = { id: string; title: string; root_path: string; account_id: string | null }
@@ -12,8 +11,6 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
   const [scanMessage, setScanMessage] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
   const [bookCreationOpen, setBookCreationOpen] = useState(false)
-  const [bookCreationLoading, setBookCreationLoading] = useState(false)
-  const [bookEntrySessionId, setBookEntrySessionId] = useState<string | null>(null)
 
   const loadBooks = useCallback(async () => {
     setLoading(true)
@@ -32,16 +29,6 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
 
   useEffect(() => {
     void loadBooks()
-    void (async () => {
-      try {
-        const res = await fetch('/api/sessions?kind=prompt')
-        const body = await res.json().catch(() => ({}))
-        const active = (body.sessions || []).find((s: any) =>
-          s.currentSkill === 'book-entry' && (s.status === 'running' || s.status === 'waiting-answer')
-        )
-        if (active) setBookEntrySessionId(active.id)
-      } catch {}
-    })()
   }, [loadBooks])
 
   const scanBooks = async () => {
@@ -61,27 +48,6 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
     }
   }
 
-  const createBook = async (idea: string) => {
-    if (!idea) return
-    setBookCreationLoading(true)
-    setError(null)
-    try {
-      const response = await fetch('/api/sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: 'prompt', currentSkill: 'book-entry', idea }),
-      })
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(body.error || '开书请求失败')
-      setBookEntrySessionId(body.session.id)
-      setBookCreationOpen(false)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '开书请求失败')
-    } finally {
-      setBookCreationLoading(false)
-    }
-  }
-
   const deleteBook = async (book: Book, e: React.MouseEvent) => {
     e.stopPropagation()
     if (!confirm(`确定删除《${book.title}》？书籍目录也会被删除，无法恢复。`)) return
@@ -96,11 +62,6 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '删除失败')
     }
-  }
-
-  const finishBookEntry = async () => {
-    setBookEntrySessionId(null)
-    await loadBooks()
   }
 
   return (
@@ -139,13 +100,14 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
         </div>
       )}
 
-      {bookEntrySessionId && (
-        <div style={{ marginTop: spacing.lg }}>
-          <ClaudeExecutionPanel sessionId={bookEntrySessionId} actionLabel="新建一本书" onDone={() => void finishBookEntry()} onInterrupted={() => void finishBookEntry()} onAnswerSubmitted={() => void loadBooks()} />
-        </div>
-      )}
-
-      <BookCreationModal open={bookCreationOpen} onClose={() => setBookCreationOpen(false)} onSubmit={createBook} loading={bookCreationLoading} />
+      <BookCreationModal
+        open={bookCreationOpen}
+        onClose={() => setBookCreationOpen(false)}
+        onCreated={(_bookId) => {
+          setBookCreationOpen(false)
+          void loadBooks()
+        }}
+      />
     </section>
   )
 }
