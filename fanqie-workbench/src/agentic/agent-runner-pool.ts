@@ -16,10 +16,11 @@ export interface AgentRunnerPoolOptions {
 
 export interface PoolStartInput {
   bookId: string
-  chapterId: string
+  chapterId: string | null
   bookMeta: BookMeta
-  chapter: ChapterMeta
+  chapter: ChapterMeta | null
   phases: Phase[]
+  actionKey: string
   sessionId: string
   emitter: EventEmitter
 }
@@ -49,6 +50,7 @@ export function createAgentRunnerPool(opts: AgentRunnerPoolOptions): AgentRunner
         bookId: input.bookId, chapterId: input.chapterId,
         bookMeta: input.bookMeta, chapter: input.chapter,
         phases: input.phases,
+        actionKey: input.actionKey,
         provider: opts.provider,
         toolRegistry: opts.toolRegistry,
         traceStore: opts.traceStore,

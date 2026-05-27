@@ -47,6 +47,7 @@ describe('AgentRunner basic loop', () => {
       bookId: 'b1', chapterId: 'c1',
       bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
       chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      actionKey: 'chapter.continue',
       phases: [phase],
       provider: fakeProvider([
         { content: 'done', toolCalls: [], usage: { promptTokens: 5, completionTokens: 2 }, finishReason: 'stop' },
@@ -80,6 +81,7 @@ describe('AgentRunner basic loop', () => {
       bookId: 'b1', chapterId: 'c1',
       bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
       chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      actionKey: 'chapter.continue',
       phases: [phase],
       provider: fakeProvider([
         { content: '', toolCalls: [{ id: 't1', name: 'echo', arguments: { msg: 'hi' } }], usage: { promptTokens: 5, completionTokens: 2 }, finishReason: 'tool_calls' },
@@ -118,6 +120,7 @@ describe('AgentRunner pause + cancel', () => {
       bookId: 'b1', chapterId: 'c1',
       bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
       chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      actionKey: 'chapter.continue',
       phases: [phase],
       provider: fakeProvider([
         { content: '', toolCalls: [{ id: 'q1', name: 'ask_user', arguments: { question: 'q?', options: [{ label: 'yes' }] } }], usage: { promptTokens: 1, completionTokens: 1 }, finishReason: 'tool_calls' },
@@ -164,6 +167,7 @@ describe('AgentRunner pause + cancel', () => {
       bookId: 'b1', chapterId: 'c1',
       bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
       chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      actionKey: 'chapter.continue',
       phases: [phase, { ...phase, name: 'p2' }],
       provider, toolRegistry: tools, traceStore, sessionId: 's2', model: 'gpt-5', emitter,
     })
@@ -203,6 +207,7 @@ describe('AgentRunner streaming', () => {
       bookId: 'b1', chapterId: 'c1',
       bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
       chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      actionKey: 'chapter.continue',
       phases: [phase],
       provider: streamingProvider,
       toolRegistry: tools, traceStore, sessionId: 's1', model: 'gpt-5', emitter,
@@ -249,6 +254,7 @@ describe('AgentRunner streaming', () => {
       bookId: 'b1', chapterId: 'c1',
       bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
       chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      actionKey: 'chapter.continue',
       phases: [phase],
       provider: streamingProvider,
       toolRegistry: tools, traceStore, sessionId: 's2', model: 'gpt-5', emitter,

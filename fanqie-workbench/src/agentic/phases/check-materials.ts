@@ -5,8 +5,9 @@ export const checkMaterialsPhase: Phase = {
   tools: ['read_file', 'list_dir', 'ask_user'],
   maxIterations: 6,
   systemPrompt(ctx) {
+    const chapter = ctx.chapter!
     return [
-      `你正在为《${ctx.bookMeta.title}》第${ctx.chapter.chapterNumber}章做写前材料检查。`,
+      `你正在为《${ctx.bookMeta.title}》第${chapter.chapterNumber}章做写前材料检查。`,
       `bookRoot = ${ctx.bookRoot}`,
       ``,
       `硬阻塞（缺失则必须 ask_user 让用户决定）：`,

@@ -7,10 +7,11 @@ import type { AgentEvent } from './events.js'
 
 export interface AgentRunnerOptions {
   bookId: string
-  chapterId: string
+  chapterId: string | null
   bookMeta: BookMeta
-  chapter: ChapterMeta
+  chapter: ChapterMeta | null
   phases: Phase[]
+  actionKey: string
   provider: LlmProvider
   toolRegistry: ToolRegistry
   traceStore: TraceStore
@@ -36,7 +37,7 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
   const traceId = opts.traceStore.createTrace({
     bookId: opts.bookId,
     chapterId: opts.chapterId,
-    actionKey: 'chapter.continue',
+    actionKey: opts.actionKey,
     sessionId: opts.sessionId,
     model: opts.model,
   })

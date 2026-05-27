@@ -5,12 +5,13 @@ export const updateTrackingPhase: Phase = {
   tools: ['read_file', 'update_tracking'],
   maxIterations: 6,
   systemPrompt(ctx) {
+    const chapter = ctx.chapter!
     return [
-      `你刚写完《${ctx.bookMeta.title}》第${ctx.chapter.chapterNumber}章，现在维护追踪文件。`,
+      `你刚写完《${ctx.bookMeta.title}》第${chapter.chapterNumber}章，现在维护追踪文件。`,
       `bookRoot = ${ctx.bookRoot}`,
       ``,
       `操作：`,
-      `1. 用 read_file 读 ${ctx.chapter.sourcePath} 拿到本章正文。`,
+      `1. 用 read_file 读 ${chapter.sourcePath} 拿到本章正文。`,
       `2. 用 read_file 读 追踪/上下文.md、追踪/伏笔.md、追踪/时间线.md 的当前内容（若文件不存在也继续）。`,
       `3. 用 update_tracking 更新这三个文件：`,
       `   - 上下文：追加/修改本章新发生的剧情、角色状态变化、关键关系。`,
@@ -20,7 +21,8 @@ export const updateTrackingPhase: Phase = {
     ].join('\n')
   },
   initialUserMessage(ctx) {
-    return `请基于第${ctx.chapter.chapterNumber}章的新正文，更新三份追踪文件。`
+    const chapter = ctx.chapter!
+    return `请基于第${chapter.chapterNumber}章的新正文，更新三份追踪文件。`
   },
   async onComplete(_ctx, _result) {
     return { trackingUpdated: true }
