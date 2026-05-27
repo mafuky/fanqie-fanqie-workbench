@@ -22,7 +22,7 @@ export function createOpenAiProvider(options: OpenAiProviderOptions): LlmProvide
         max_tokens: input.maxTokens,
         temperature: input.temperature,
       }
-      if (input.onDelta) {
+      if (input.onDelta || input.onToolCallDelta) {
         const stream = await client.chat.completions.create({
           ...baseParams,
           stream: true,
@@ -30,19 +30,39 @@ export function createOpenAiProvider(options: OpenAiProviderOptions): LlmProvide
         } as any)
         let content = ''
         let finishReason: ChatResult['finishReason'] = 'stop'
-        const toolCalls: ToolCall[] = []
+        const toolCallAccum: Array<{ id: string; name: string; rawArgs: string }> = []
         let usage = { promptTokens: 0, completionTokens: 0 }
         for await (const chunk of stream as AsyncIterable<any>) {
           const choice = chunk.choices?.[0]
           if (choice?.delta?.content) {
             content += choice.delta.content
-            input.onDelta(choice.delta.content)
+            input.onDelta?.(choice.delta.content)
+          }
+          if (Array.isArray(choice?.delta?.tool_calls)) {
+            for (const tcDelta of choice.delta.tool_calls) {
+              const idx: number = tcDelta.index ?? 0
+              if (!toolCallAccum[idx]) toolCallAccum[idx] = { id: '', name: '', rawArgs: '' }
+              if (tcDelta.id) toolCallAccum[idx].id = tcDelta.id
+              if (tcDelta.function?.name) toolCallAccum[idx].name = tcDelta.function.name
+              if (tcDelta.function?.arguments) toolCallAccum[idx].rawArgs += tcDelta.function.arguments
+              input.onToolCallDelta?.({
+                index: idx,
+                id: tcDelta.id,
+                name: tcDelta.function?.name,
+                argsFragment: tcDelta.function?.arguments,
+              })
+            }
           }
           if (choice?.finish_reason) finishReason = choice.finish_reason
           if (chunk.usage) {
             usage = { promptTokens: chunk.usage.prompt_tokens, completionTokens: chunk.usage.completion_tokens }
           }
         }
+        const toolCalls: ToolCall[] = toolCallAccum.map((tc) => ({
+          id: tc.id,
+          name: tc.name,
+          arguments: tc.rawArgs ? JSON.parse(tc.rawArgs) : {},
+        }))
         return { content, toolCalls, usage, finishReason }
       }
       const response = await client.chat.completions.create(baseParams)

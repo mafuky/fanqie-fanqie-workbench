@@ -25,6 +25,13 @@ export interface ChatResult {
   finishReason: 'stop' | 'tool_calls' | 'length'
 }
 
+export interface ToolCallDelta {
+  index: number
+  id?: string
+  name?: string
+  argsFragment?: string
+}
+
 export interface ChatInput {
   messages: ChatMessage[]
   tools?: ToolSpec[]
@@ -32,6 +39,7 @@ export interface ChatInput {
   maxTokens?: number
   temperature?: number
   onDelta?: (delta: string) => void
+  onToolCallDelta?: (delta: ToolCallDelta) => void
 }
 
 export interface LlmProvider {

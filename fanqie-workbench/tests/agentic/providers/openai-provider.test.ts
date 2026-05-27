@@ -106,4 +106,28 @@ describe('OpenAiProvider', () => {
     expect(result.usage.promptTokens).toBe(4)
     expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ stream: true, stream_options: { include_usage: true } }))
   })
+
+  it('streams tool_calls deltas and reconstructs final ToolCall[] with onToolCallDelta fired per chunk', async () => {
+    async function* fakeStream() {
+      yield { choices: [{ delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'call_x', type: 'function', function: { name: 'write_file', arguments: '' } }] }, finish_reason: null }] }
+      yield { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"path' } }] }, finish_reason: null }] }
+      yield { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '":"a.md","content":"hi"}' } }] }, finish_reason: null }] }
+      yield { choices: [{ delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 10, completion_tokens: 8 } }
+    }
+    mockCreate.mockResolvedValueOnce(fakeStream())
+    const toolCallDeltas: any[] = []
+    const provider = createOpenAiProvider({ apiKey: 'sk-test' })
+    const result = await provider.chat({
+      model: 'gpt-5',
+      messages: [{ role: 'user', content: 'write' }],
+      tools: [{ name: 'write_file', description: 'w', parameters: { type: 'object', properties: {} } }],
+      onDelta: () => {},
+      onToolCallDelta: (d) => toolCallDeltas.push(d),
+    })
+    expect(result.toolCalls).toEqual([{ id: 'call_x', name: 'write_file', arguments: { path: 'a.md', content: 'hi' } }])
+    expect(result.finishReason).toBe('tool_calls')
+    // First delta should include name + id; later deltas only carry argsFragment
+    expect(toolCallDeltas[0]).toMatchObject({ index: 0, id: 'call_x', name: 'write_file' })
+    expect(toolCallDeltas.map((d) => d.argsFragment).filter(Boolean).join('')).toBe('{"path":"a.md","content":"hi"}')
+  })
 })
