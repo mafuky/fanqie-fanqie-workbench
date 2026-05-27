@@ -175,3 +175,88 @@ describe('AgentRunner pause + cancel', () => {
     expect(calls).toBeLessThanOrEqual(1)
   })
 })
+
+describe('AgentRunner streaming', () => {
+  it('emits delta events when provider streams content', async () => {
+    const db = memDb()
+    const traceStore = createTraceStore(db)
+    const tools = createToolRegistry()
+    const emitter = new EventEmitter()
+    const events: any[] = []
+    emitter.on('event', (e) => events.push(e))
+
+    const streamingProvider: LlmProvider = {
+      name: 'fake',
+      async chat({ onDelta }) {
+        onDelta?.('hel')
+        onDelta?.('lo')
+        return { content: 'hello', toolCalls: [], usage: { promptTokens: 1, completionTokens: 1 }, finishReason: 'stop' }
+      },
+    }
+
+    const phase: Phase = {
+      name: 'p1', tools: [], maxIterations: 1,
+      systemPrompt: () => 's', initialUserMessage: () => 'go',
+    }
+
+    const runner = createAgentRunner({
+      bookId: 'b1', chapterId: 'c1',
+      bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
+      chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      phases: [phase],
+      provider: streamingProvider,
+      toolRegistry: tools, traceStore, sessionId: 's1', model: 'gpt-5', emitter,
+    })
+
+    await runner.start()
+    const deltas = events.filter((e) => e.type === 'delta')
+    expect(deltas.map((d) => d.content)).toEqual(['hel', 'lo'])
+    expect(deltas.every((d) => d.phase === 'p1')).toBe(true)
+  })
+
+  it('emits tool-call-delta events when provider streams tool arguments', async () => {
+    const db = memDb()
+    const traceStore = createTraceStore(db)
+    const tools = createToolRegistry()
+    tools.register({
+      spec: { name: 'write_file', description: '', parameters: { type: 'object', properties: {} } },
+      async execute() { return { ok: true, result: 'ok' } },
+    })
+    const emitter = new EventEmitter()
+    const events: any[] = []
+    emitter.on('event', (e) => events.push(e))
+
+    const streamingProvider: LlmProvider = {
+      name: 'fake',
+      async chat({ onToolCallDelta }) {
+        onToolCallDelta?.({ index: 0, id: 'call_1', name: 'write_file' })
+        onToolCallDelta?.({ index: 0, argsFragment: '{"path":"a.md"}' })
+        return {
+          content: '',
+          toolCalls: [{ id: 'call_1', name: 'write_file', arguments: { path: 'a.md' } }],
+          usage: { promptTokens: 1, completionTokens: 1 },
+          finishReason: 'tool_calls',
+        }
+      },
+    }
+
+    const phase: Phase = {
+      name: 'p1', tools: ['write_file'], maxIterations: 2,
+      systemPrompt: () => 's', initialUserMessage: () => 'go',
+    }
+
+    const runner = createAgentRunner({
+      bookId: 'b1', chapterId: 'c1',
+      bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
+      chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      phases: [phase],
+      provider: streamingProvider,
+      toolRegistry: tools, traceStore, sessionId: 's2', model: 'gpt-5', emitter,
+    })
+
+    await runner.start()
+    const tcDeltas = events.filter((e) => e.type === 'tool-call-delta')
+    expect(tcDeltas[0]).toMatchObject({ phase: 'p1', toolCallIndex: 0, id: 'call_1', name: 'write_file' })
+    expect(tcDeltas[1]).toMatchObject({ phase: 'p1', toolCallIndex: 0, argsFragment: '{"path":"a.md"}' })
+  })
+})
