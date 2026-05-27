@@ -13,7 +13,7 @@ describe('scaffold-book phase', () => {
     expect(scaffoldBookPhase.tools).toEqual(expect.arrayContaining(['read_file', 'write_file']))
   })
 
-  it('prompt lists all 7 scaffold files', () => {
+  it('prompt lists all 9 scaffold files', () => {
     const p = scaffoldBookPhase.systemPrompt(ctx)
     expect(p).toContain('大纲/总纲.md')
     expect(p).toContain('设定/世界观.md')
@@ -22,5 +22,7 @@ describe('scaffold-book phase', () => {
     expect(p).toContain('追踪/上下文.md')
     expect(p).toContain('追踪/伏笔.md')
     expect(p).toContain('追踪/时间线.md')
+    expect(p).toContain('大纲/细纲_第001章.md')
+    expect(p).toContain('正文/第001章.md')
   })
 })
