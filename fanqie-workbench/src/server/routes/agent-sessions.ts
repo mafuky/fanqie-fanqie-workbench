@@ -44,6 +44,9 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       sessionEmitters.set(sessionId, emitter)
       sessionToBook.set(sessionId, bookId)
       activeBookIds.add(bookId)
+      emitter.on('event', (ev: any) => {
+        if (ev.type === 'done') activeBookIds.delete(bookId)
+      })
       try {
         const runner = await deps.service.start({
           actionKey,
