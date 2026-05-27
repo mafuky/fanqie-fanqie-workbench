@@ -7,6 +7,7 @@ import { createToolRegistry } from '../../src/agentic/tools/tool.js'
 import { createAgentRunner } from '../../src/agentic/agent-runner.js'
 import type { LlmProvider } from '../../src/agentic/providers/provider.js'
 import type { Phase } from '../../src/agentic/phases/phase.js'
+import { createAskUserTool } from '../../src/agentic/tools/ask-user.js'
 
 function memDb() {
   const db = new Database(':memory:')
@@ -93,5 +94,84 @@ describe('AgentRunner basic loop', () => {
 
     await runner.start()
     expect(runner.status).toBe('succeeded')
+  })
+})
+
+describe('AgentRunner pause + cancel', () => {
+  it('pauses on ask_user and resumes when resolver called', async () => {
+    const db = memDb()
+    const traceStore = createTraceStore(db)
+    const tools = createToolRegistry()
+    const emitter = new EventEmitter()
+
+    const resolvers = new Map<string, (s: string) => void>()
+    tools.register(createAskUserTool({
+      waitForAnswer: (bookId) => new Promise<string>((resolve) => { resolvers.set(bookId, resolve) }),
+    }))
+
+    const phase: Phase = {
+      name: 'p1', tools: ['ask_user'], maxIterations: 3,
+      systemPrompt: () => 'sys', initialUserMessage: () => 'go',
+    }
+
+    const runner = createAgentRunner({
+      bookId: 'b1', chapterId: 'c1',
+      bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
+      chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      phases: [phase],
+      provider: fakeProvider([
+        { content: '', toolCalls: [{ id: 'q1', name: 'ask_user', arguments: { question: 'q?', options: [{ label: 'yes' }] } }], usage: { promptTokens: 1, completionTokens: 1 }, finishReason: 'tool_calls' },
+        { content: 'done', toolCalls: [], usage: { promptTokens: 1, completionTokens: 1 }, finishReason: 'stop' },
+      ]),
+      toolRegistry: tools, traceStore, sessionId: 's1', model: 'gpt-5', emitter,
+    })
+
+    const promise = runner.start()
+    // Wait until runner emits a question event
+    await new Promise<void>((resolve) => {
+      const h = (e: any) => { if (e.type === 'question') { emitter.off('event', h); resolve() } }
+      emitter.on('event', h)
+    })
+    expect(runner.status).toBe('waiting-answer')
+    // Caller forwards the answer to the resolver registered by the ask_user tool
+    resolvers.get('b1')!('yes')
+    await promise
+    expect(runner.status).toBe('succeeded')
+  })
+
+  it('cancel sets status to cancelled and stops loop', async () => {
+    const db = memDb()
+    const traceStore = createTraceStore(db)
+    const tools = createToolRegistry()
+    const emitter = new EventEmitter()
+
+    const phase: Phase = {
+      name: 'p1', tools: [], maxIterations: 5,
+      systemPrompt: () => 'sys', initialUserMessage: () => 'go',
+    }
+
+    let calls = 0
+    const provider: LlmProvider = {
+      name: 'fake',
+      async chat() {
+        calls++
+        await new Promise((r) => setTimeout(r, 5))
+        return { content: '', toolCalls: [], usage: { promptTokens: 1, completionTokens: 1 }, finishReason: 'stop' }
+      },
+    }
+
+    const runner = createAgentRunner({
+      bookId: 'b1', chapterId: 'c1',
+      bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
+      chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      phases: [phase, { ...phase, name: 'p2' }],
+      provider, toolRegistry: tools, traceStore, sessionId: 's2', model: 'gpt-5', emitter,
+    })
+
+    const promise = runner.start()
+    runner.cancel()
+    await promise
+    expect(runner.status).toBe('cancelled')
+    expect(calls).toBeLessThanOrEqual(1)
   })
 })
