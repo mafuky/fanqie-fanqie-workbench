@@ -14,14 +14,10 @@ import {
   updateSessionStatus,
   type SessionKind,
 } from '../../db/repositories/sessions-repo.js'
-import { runBookEntryTerminalSession, getBookEntryPtyManager } from '../../claude/book-entry-terminal-runner.js'
-import { buildActionCommand } from '../../actions/action-command-builder.js'
-import { normalizeActionKey } from '../../actions/action-registry.js'
 import { ClaudeSession, type ClaudeEvent } from '../../claude/claude-executor.js'
 import { getOrCreateEmitter } from '../../claude/stream-capture.js'
-import { getSessionRuntimeOptions, clearSessionRuntimeOptions } from '../../claude/session-runtime-options.js'
-import { runTerminalSessionCommand } from '../../claude/terminal-session-runner.js'
-import type { PermissionChoice } from '../../claude/terminal-runtime.js'
+
+type PermissionChoice = 'allow-once' | 'deny'
 
 function getDatabasePath() {
   return process.env.WORKBENCH_DB || 'data/workbench.sqlite'
@@ -110,66 +106,7 @@ export async function registerSessionRoutes(app: FastifyInstance) {
     db.close()
 
     if (kind === 'prompt' && sessionPrompt && !existingBookMasterSession) {
-      if ((currentSkill ?? null) === 'book-entry') {
-        void runBookEntryTerminalSession({
-          databasePath: getDatabasePath(),
-          sessionId: session.id,
-          prompt: sessionPrompt,
-        })
-      } else {
-        runPromptSession(session.id, sessionPrompt, currentSkill)
-      }
-    }
-
-    if (kind === 'chapter' && chapterId) {
-      const emitter = getOrCreateEmitter(session.id)
-      const runDb = openDatabase(getDatabasePath())
-      const chapter = runDb.prepare(
-        `SELECT c.id, c.stage, c.title, c.source_path, c.chapter_number, c.book_id,
-                b.title AS book_title, b.root_path AS book_root
-         FROM chapters c
-         JOIN books b ON b.id = c.book_id
-         WHERE c.id = ?`
-      ).get(chapterId) as {
-        id: string
-        stage: string
-        title: string
-        source_path: string
-        chapter_number: number
-        book_id: string
-        book_title: string
-        book_root: string
-      } | undefined
-
-      if (chapter) {
-        const actionKey = normalizeActionKey(currentSkill || 'chapter-pipeline')
-        const command = buildActionCommand({
-          actionKey,
-          bookTitle: chapter.book_title,
-          bookRoot: chapter.book_root,
-          chapterNumber: chapter.chapter_number,
-          chapterTitle: chapter.title,
-          chapterPath: chapter.source_path,
-        })
-
-        void runTerminalSessionCommand({
-          databasePath: getDatabasePath(),
-          sessionId: session.id,
-          bookId: chapter.book_id,
-          command,
-          currentSkill: currentSkill ?? undefined,
-        })
-        runDb.close()
-      } else {
-        updateSessionStatus(runDb, session.id, 'failed', currentSkill ?? null)
-        appendAndEmitSessionMessage(runDb, session.id, emitter, {
-          role: 'assistant',
-          stream: 'stderr',
-          content: 'chapter not found',
-        })
-        emitter.emit('done', { status: 'failed' })
-        runDb.close()
-      }
+      runPromptSession(session.id, sessionPrompt, currentSkill)
     }
 
     return reply.code(201).send({ session })
@@ -288,31 +225,9 @@ export async function registerSessionRoutes(app: FastifyInstance) {
       db.close()
       return reply.code(404).send({ error: 'session not found' })
     }
-    const runtimeOptions = getSessionRuntimeOptions(sessionId)
-    const runtimeBookId = runtimeOptions?.runtimeBookId ?? session.bookId
-    if (!runtimeBookId) {
-      db.close()
-      return reply.code(400).send({ error: 'session has no terminal runtime' })
-    }
     if (session.status !== 'waiting-permission') {
       db.close()
       return reply.code(409).send({ error: 'session is not waiting for permission' })
-    }
-
-    const manager = getBookEntryPtyManager()
-    const ptySession = manager.getSession(runtimeBookId)
-    if (!ptySession) {
-      db.close()
-      return reply.code(400).send({ error: 'no PTY session for this book' })
-    }
-
-    // Send the permission choice via PTY keys
-    if (choice === 'allow-once') {
-      // Select "Allow once" (typically the first option)
-      manager.sendKeys(runtimeBookId, ['Enter'])
-    } else {
-      // Select "Deny" — navigate down to deny option and confirm
-      manager.sendKeys(runtimeBookId, ['Down', 'Enter'])
     }
 
     appendSessionMessage(db, sessionId, {
@@ -322,7 +237,6 @@ export async function registerSessionRoutes(app: FastifyInstance) {
     })
 
     if (choice === 'deny') {
-      clearSessionRuntimeOptions(sessionId)
       updateSessionMetadata(db, sessionId, { contextSnapshotJson: null })
       updateSessionStatus(db, sessionId, 'failed', session.currentSkill)
       db.close()
@@ -334,7 +248,6 @@ export async function registerSessionRoutes(app: FastifyInstance) {
     updateSessionStatus(db, sessionId, 'running', session.currentSkill)
     db.close()
 
-    // No capture loop restart needed — PTY WebSocket stream handles it
     return { handled: true }
   })
 
@@ -347,13 +260,6 @@ export async function registerSessionRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'session not found' })
     }
 
-    const runtimeBookId = getSessionRuntimeOptions(request.params.sessionId)?.runtimeBookId ?? session.bookId
-    if (runtimeBookId) {
-      const manager = getBookEntryPtyManager()
-      manager.kill(runtimeBookId)
-    }
-
-    clearSessionRuntimeOptions(request.params.sessionId)
     updateSessionStatus(db, request.params.sessionId, 'failed', session.currentSkill)
     appendSessionMessage(db, request.params.sessionId, { role: 'assistant', stream: 'stderr', content: 'session interrupted by user' })
     db.close()
@@ -374,7 +280,6 @@ export async function registerSessionRoutes(app: FastifyInstance) {
       return reply.code(409).send({ error: 'session already finished' })
     }
 
-    clearSessionRuntimeOptions(sessionId)
     updateSessionStatus(db, sessionId, 'succeeded', session.currentSkill)
     appendSessionMessage(db, sessionId, { role: 'assistant', stream: 'stdout', content: '\n[用户标记完成]' })
     db.close()
@@ -423,51 +328,11 @@ export async function registerSessionRoutes(app: FastifyInstance) {
       return reply.code(409).send({ error: 'session is not waiting for an answer' })
     }
 
-    const runtimeBookId = getSessionRuntimeOptions(sessionId)?.runtimeBookId ?? session.bookId
-    if (!runtimeBookId) {
-      db.close()
-      return reply.code(400).send({ error: 'session has no terminal runtime' })
-    }
-
-    const manager = getBookEntryPtyManager()
-    const ptySession = manager.getSession(runtimeBookId)
-    if (!ptySession) {
-      db.close()
-      return reply.code(400).send({ error: 'no PTY session for this book' })
-    }
-
-    const multiFinalMatch = answer.match(/^multi-final:([\d,]*)\|initial:([\d,]*)\|count:(\d+)$/)
-    const optionMatch = !multiFinalMatch ? answer.match(/^(\d+)\./) : null
-    if (multiFinalMatch) {
-      const desired = new Set(multiFinalMatch[1].split(',').map(Number).filter(Boolean))
-      const initial = new Set(multiFinalMatch[2].split(',').map(Number).filter(Boolean))
-      const count = parseInt(multiFinalMatch[3])
-      const keys: string[] = []
-      for (let i = 0; i < count; i++) keys.push('Up')
-      for (let opt = 1; opt <= count; opt++) {
-        const wasChecked = initial.has(opt)
-        const wantChecked = desired.has(opt)
-        if (wasChecked !== wantChecked) keys.push('Space')
-        if (opt < count) keys.push('Down')
-      }
-      keys.push('Enter')
-      manager.sendKeys(runtimeBookId, keys)
-    } else if (optionMatch) {
-      const optionNumber = parseInt(optionMatch[1])
-      const keys: string[] = []
-      for (let i = 1; i < optionNumber; i++) keys.push('Down')
-      keys.push('Enter')
-      manager.sendKeys(runtimeBookId, keys)
-    } else {
-      manager.write(runtimeBookId, answer + '\n')
-    }
-
     appendSessionMessage(db, sessionId, { role: 'user', stream: 'question', content: answer })
     updateSessionPendingQuestion(db, sessionId, null)
     updateSessionStatus(db, sessionId, 'running', session.currentSkill)
     db.close()
 
-    // No capture loop restart needed — PTY WebSocket stream handles it
     return { answered: true }
   })
 }
