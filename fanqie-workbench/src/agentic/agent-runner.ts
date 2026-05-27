@@ -17,6 +17,7 @@ export interface AgentRunnerOptions {
   sessionId: string
   model: string
   emitter: EventEmitter
+  onAskUserPending?: (pending: boolean) => void
 }
 
 export type AgentRunnerStatus = 'pending' | 'running' | 'waiting-answer' | 'succeeded' | 'failed' | 'cancelled'
@@ -26,6 +27,9 @@ export interface AgentRunner {
   readonly currentPhase: string | null
   readonly traceId: number
   start(): Promise<void>
+  cancel(): void
+  /** No-op pass-through retained for API symmetry; the actual answer goes to the ask_user tool resolver owned by AgentService. */
+  submitAnswer(answer: string): void
 }
 
 export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
@@ -38,6 +42,7 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
   })
   let status: AgentRunnerStatus = 'pending'
   let currentPhase: string | null = null
+  let cancelled = false
   const previousPhaseResults: Record<string, unknown> = {}
 
   function emit(ev: AgentEvent) {
@@ -45,14 +50,21 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
     opts.traceStore.appendEvent(traceId, { phase: currentPhase ?? 'system', eventType: ev.type, payload: ev })
   }
 
+  function checkCancelled() {
+    if (cancelled) throw new Error('cancelled')
+  }
+
   return {
     get status() { return status },
     get currentPhase() { return currentPhase },
     traceId,
+    cancel() { cancelled = true },
+    submitAnswer(_answer: string) { /* delegated to ask_user tool resolver in AgentService */ },
     async start() {
       status = 'running'
       try {
         for (const phase of opts.phases) {
+          checkCancelled()
           currentPhase = phase.name
           emit({ type: 'phase-start', phase: phase.name })
           const ctx: PhaseContext = {
@@ -65,24 +77,28 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
           ]
           let lastResult: any = null
           for (let iter = 0; iter < phase.maxIterations; iter++) {
+            checkCancelled()
             const tools = opts.toolRegistry.listFiltered(phase.tools)
-            const result = await opts.provider.chat({
-              model: opts.model,
-              messages,
-              tools,
-            })
+            const result = await opts.provider.chat({ model: opts.model, messages, tools })
             opts.traceStore.addUsage(traceId, result.usage)
             emit({ type: 'message', phase: phase.name, role: 'assistant', content: result.content })
             lastResult = result
             if (result.toolCalls.length === 0) break
             messages.push({ role: 'assistant', content: result.content, toolCalls: result.toolCalls })
             for (const call of result.toolCalls) {
+              checkCancelled()
               emit({ type: 'tool-call', phase: phase.name, toolCallId: call.id, name: call.name, args: call.arguments })
+              if (call.name === 'ask_user') {
+                status = 'waiting-answer'
+                opts.onAskUserPending?.(true)
+              }
               const toolResult = await opts.toolRegistry.execute(call, {
-                bookId: opts.bookId,
-                bookRoot: opts.bookMeta.rootPath,
-                emit,
+                bookId: opts.bookId, bookRoot: opts.bookMeta.rootPath, emit,
               })
+              if (call.name === 'ask_user') {
+                status = 'running'
+                opts.onAskUserPending?.(false)
+              }
               const content = toolResult.ok ? toolResult.result : `ERROR: ${toolResult.error}`
               emit({ type: 'tool-result', phase: phase.name, toolCallId: call.id, name: call.name, result: content, ok: toolResult.ok })
               messages.push({ role: 'tool', toolCallId: call.id, name: call.name, content })
@@ -98,10 +114,16 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
         opts.traceStore.endTrace(traceId, 'succeeded')
         emit({ type: 'done', status: 'succeeded' })
       } catch (err: any) {
-        status = 'failed'
-        opts.traceStore.endTrace(traceId, 'failed')
-        emit({ type: 'error', message: err?.message ?? String(err) })
-        emit({ type: 'done', status: 'failed' })
+        if (cancelled) {
+          status = 'cancelled'
+          opts.traceStore.endTrace(traceId, 'cancelled')
+          emit({ type: 'done', status: 'cancelled' })
+        } else {
+          status = 'failed'
+          opts.traceStore.endTrace(traceId, 'failed')
+          emit({ type: 'error', message: err?.message ?? String(err) })
+          emit({ type: 'done', status: 'failed' })
+        }
       }
     },
   }
