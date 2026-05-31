@@ -26,3 +26,20 @@ describe('scaffold-book phase', () => {
     expect(p).toContain('正文/第001章.md')
   })
 })
+
+describe('scaffoldBookPhase writes 设定/方向.md', () => {
+  it('system prompt instructs writing 设定/方向.md from the direction summary', () => {
+    const c = {
+      bookId: 'book-1',
+      bookRoot: '/novels/雾港疑局',
+      chapterId: null,
+      bookMeta: { id: 'book-1', title: '雾港疑局', rootPath: '/novels/雾港疑局' },
+      chapter: null,
+      previousPhaseResults: { directionSummary: '## 题材\n现代悬疑\n## 平台\n番茄' },
+    } as any
+    const prompt = scaffoldBookPhase.systemPrompt(c)
+    expect(prompt).toContain('设定/方向.md')
+    expect(prompt).toContain('现代悬疑') // direction summary embedded
+    expect(scaffoldBookPhase.tools).toContain('write_file')
+  })
+})
