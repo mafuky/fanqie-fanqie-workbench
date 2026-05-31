@@ -154,4 +154,21 @@ describe('LibraryPage writing loop entry', () => {
       expect(booksCallCount).toBeGreaterThanOrEqual(2)
     })
   })
+
+  it('renders a 生成封面 button per book and posts to the cover endpoint on click', async () => {
+    ;(globalThis as any).fetch = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input === '/api/books') return { ok: true, json: async () => ({ books: [{ id: 'book-1', title: '雾港疑局', root_path: '/tmp/book', account_id: null }] }) }
+      if (input === '/api/books/book-1/cover' && init?.method === 'POST') return { ok: true, status: 202, json: async () => ({ status: 'queued' }) }
+      throw new Error(`unexpected fetch ${input}`)
+    })
+
+    render(<LibraryPage onOpenBook={vi.fn()} />)
+
+    const coverBtn = await screen.findByText('生成封面')
+    fireEvent.click(coverBtn)
+
+    await waitFor(() => {
+      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/books/book-1/cover', expect.objectContaining({ method: 'POST' }))
+    })
+  })
 })

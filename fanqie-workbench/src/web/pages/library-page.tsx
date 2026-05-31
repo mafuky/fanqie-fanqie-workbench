@@ -64,6 +64,21 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
     }
   }
 
+  const generateCover = async (book: Book, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setError(null)
+    try {
+      const response = await fetch(`/api/books/${book.id}/cover`, { method: 'POST' })
+      if (!response.ok && response.status !== 202) {
+        const body = await response.json().catch(() => ({}))
+        throw new Error(body.error || '封面生成失败')
+      }
+      setScanMessage(`已开始为《${book.title}》生成封面`)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '封面生成失败')
+    }
+  }
+
   return (
     <section>
       <header style={{ display: 'flex', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg }}>
@@ -93,6 +108,7 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
                 <strong>{book.title}</strong>
                 <div style={{ color: 'var(--text-muted)', marginTop: spacing.xs }}>{book.root_path}</div>
               </button>
+              <button onClick={(e) => void generateCover(book, e)} title="生成封面" style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: radius.md, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', fontSize: fontSize.sm, flexShrink: 0 }}>生成封面</button>
               <button onClick={(e) => void deleteBook(book, e)} title="删除此书" style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: radius.md, background: 'transparent', color: 'var(--red)', cursor: 'pointer', fontSize: fontSize.sm, flexShrink: 0 }}>删除</button>
             </div>
           ))}
