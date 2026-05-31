@@ -32,4 +32,10 @@ export interface Phase {
   systemPrompt(ctx: PhaseContext): string
   initialUserMessage(ctx: PhaseContext): string
   onComplete?(ctx: PhaseContext, result: ChatResult): Promise<Record<string, unknown> | void>
+  /**
+   * Post-phase quality gate. Reads back what the model produced and returns a list
+   * of human-readable problems (empty = passed). The runner feeds these back to the
+   * model for a bounded number of repair rounds, then fails the phase if still unmet.
+   */
+  verify?(ctx: PhaseContext): Promise<string[]>
 }
