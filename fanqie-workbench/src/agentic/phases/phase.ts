@@ -4,6 +4,8 @@ export interface BookMeta {
   id: string
   title: string
   rootPath: string
+  /** Raw 开书想法 (creative brief). Only set for book.create; used by clarify-direction to propose candidate titles. */
+  idea?: string
 }
 
 export interface ChapterMeta {
