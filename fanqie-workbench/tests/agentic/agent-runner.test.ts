@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events'
 import Database from 'better-sqlite3'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { schemaSql } from '../../src/db/schema.js'
 import { createTraceStore } from '../../src/agentic/trace-store.js'
 import { createToolRegistry } from '../../src/agentic/tools/tool.js'
 import { createAgentRunner } from '../../src/agentic/agent-runner.js'
+import type { AgentRunnerOptions } from '../../src/agentic/agent-runner.js'
 import type { LlmProvider } from '../../src/agentic/providers/provider.js'
 import type { Phase } from '../../src/agentic/phases/phase.js'
 import { createAskUserTool } from '../../src/agentic/tools/ask-user.js'
@@ -264,5 +265,79 @@ describe('AgentRunner streaming', () => {
     const tcDeltas = events.filter((e) => e.type === 'tool-call-delta')
     expect(tcDeltas[0]).toMatchObject({ phase: 'p1', toolCallIndex: 0, id: 'call_1', name: 'write_file' })
     expect(tcDeltas[1]).toMatchObject({ phase: 'p1', toolCallIndex: 0, argsFragment: '{"path":"a.md"}' })
+  })
+})
+
+function noToolProvider(content = 'ok'): LlmProvider {
+  return {
+    async chat({ onDelta }: any) {
+      onDelta?.(content)
+      return { content, toolCalls: [], usage: { promptTokens: 1, completionTokens: 1 } }
+    },
+  } as unknown as LlmProvider
+}
+const fakeToolRegistry = { listFiltered: () => [], execute: async () => ({ ok: true, result: '' }) } as any
+const fakeTraceStore = { createTrace: () => 1, appendEvent: () => {}, addUsage: () => {}, endTrace: () => {} } as any
+function baseOpts(overrides: Partial<AgentRunnerOptions>): AgentRunnerOptions {
+  return {
+    bookId: 'book-1', chapterId: null,
+    bookMeta: { id: 'book-1', title: '占位', rootPath: 'pending:book-1' },
+    chapter: null, phases: [], actionKey: 'book.create',
+    provider: noToolProvider(), toolRegistry: fakeToolRegistry, traceStore: fakeTraceStore,
+    sessionId: 'sess-1', model: 'test-model', emitter: new EventEmitter(),
+    ...overrides,
+  }
+}
+
+describe('agent-runner onBookNamed', () => {
+  it('calls onBookNamed when a phase emits bookTitle and routes later phases to the new path', async () => {
+    const seenRoots: string[] = []
+    const namingPhase: Phase = {
+      name: 'naming', tools: [], maxIterations: 1,
+      systemPrompt: () => 'sys', initialUserMessage: () => 'go',
+      async onComplete() { return { directionLocked: true, directionSummary: 'dir', bookTitle: '雾港疑局' } },
+    }
+    const laterPhase: Phase = {
+      name: 'later', tools: [], maxIterations: 1,
+      systemPrompt: (ctx) => { seenRoots.push(ctx.bookRoot); return 'sys' },
+      initialUserMessage: () => 'go',
+    }
+    const onBookNamed = vi.fn(async (title: string) => ({ title, rootPath: `/novels/${title}` }))
+    const opts = baseOpts({ phases: [namingPhase, laterPhase], onBookNamed })
+    const runner = createAgentRunner(opts)
+    await runner.start()
+    expect(onBookNamed).toHaveBeenCalledTimes(1)
+    expect(onBookNamed).toHaveBeenCalledWith('雾港疑局')
+    expect(opts.bookMeta.title).toBe('雾港疑局')
+    expect(opts.bookMeta.rootPath).toBe('/novels/雾港疑局')
+    expect(seenRoots).toEqual(['/novels/雾港疑局'])
+    expect(runner.status).toBe('succeeded')
+  })
+
+  it('does not call onBookNamed when no phase emits bookTitle (chapter.continue stays unchanged)', async () => {
+    const plainPhase: Phase = {
+      name: 'plain', tools: [], maxIterations: 1,
+      systemPrompt: () => 'sys', initialUserMessage: () => 'go',
+      async onComplete() { return { somethingElse: true } },
+    }
+    const onBookNamed = vi.fn(async (title: string) => ({ title, rootPath: '/x' }))
+    const opts = baseOpts({ actionKey: 'chapter.continue', phases: [plainPhase], onBookNamed })
+    const runner = createAgentRunner(opts)
+    await runner.start()
+    expect(onBookNamed).not.toHaveBeenCalled()
+    expect(opts.bookMeta.rootPath).toBe('pending:book-1')
+    expect(runner.status).toBe('succeeded')
+  })
+
+  it('works when onBookNamed is absent and a phase emits bookTitle (no crash)', async () => {
+    const namingPhase: Phase = {
+      name: 'naming', tools: [], maxIterations: 1,
+      systemPrompt: () => 'sys', initialUserMessage: () => 'go',
+      async onComplete() { return { bookTitle: '某书' } },
+    }
+    const opts = baseOpts({ phases: [namingPhase] })
+    const runner = createAgentRunner(opts)
+    await runner.start()
+    expect(runner.status).toBe('succeeded')
   })
 })

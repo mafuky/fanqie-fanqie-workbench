@@ -23,6 +23,7 @@ export interface PoolStartInput {
   actionKey: string
   sessionId: string
   emitter: EventEmitter
+  onBookNamed?: (title: string) => Promise<{ title: string; rootPath: string }>
 }
 
 export interface AgentRunnerPool {
@@ -57,6 +58,7 @@ export function createAgentRunnerPool(opts: AgentRunnerPoolOptions): AgentRunner
         sessionId: input.sessionId,
         model: opts.model,
         emitter: input.emitter,
+        onBookNamed: input.onBookNamed,
       })
       active.set(input.bookId, runner)
       input.emitter.on('event', (ev: any) => {
