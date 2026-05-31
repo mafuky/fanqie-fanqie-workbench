@@ -540,4 +540,26 @@ export async function registerBookRoutes(app: FastifyInstance) {
       }
     },
   )
+
+  // Minimal closure for the 生成封面 button. story-cover is a separate Claude-skill
+  // channel (not the agentic loop); actual GPT-Image-2 wiring is deferred. For now
+  // this validates the book is fully created and returns a queued placeholder.
+  app.post<{ Params: { bookId: string } }>(
+    '/api/books/:bookId/cover',
+    async (request, reply) => {
+      const db = openDatabase(getDatabasePath())
+      try {
+        const book = db.prepare('SELECT id, title, root_path FROM books WHERE id = ?').get(request.params.bookId) as
+          | { id: string; title: string; root_path: string }
+          | undefined
+        if (!book) return reply.code(404).send({ error: 'book not found' })
+        if (book.root_path.startsWith('pending:')) {
+          return reply.code(409).send({ error: 'book is still being created' })
+        }
+        return reply.code(202).send({ status: 'queued', bookId: book.id })
+      } finally {
+        db.close()
+      }
+    },
+  )
 }
