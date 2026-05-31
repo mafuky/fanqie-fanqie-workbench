@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { join, resolve as resolvePath } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import type Database from 'better-sqlite3'
@@ -103,44 +104,68 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
     },
   )
 
-  app.post<{ Body: { title: string } }>(
+  app.post<{ Body: { idea: string } }>(
     '/api/agent-sessions/book-create',
     async (req, reply) => {
-      const { title } = req.body
-      if (!title || /[\\/ ]/.test(title)) {
-        return reply.code(400).send({ error: 'title is required and must not contain slashes' })
+      const idea = req.body?.idea?.trim()
+      if (!idea) {
+        return reply.code(400).send({ error: 'idea is required' })
       }
-      // Check duplicate
-      const dup = deps.db.prepare(`SELECT id FROM books WHERE title = ?`).get(title)
-      if (dup) return reply.code(409).send({ error: 'book title already exists' })
 
-      // Compute bookRoot — workspace root is parent of fanqie-workbench
       const workspaceRoot = process.env.WORKSPACE_ROOT ?? resolvePath(process.cwd(), '..')
-      const bookRoot = join(workspaceRoot, 'novels', title)
-      await mkdir(bookRoot, { recursive: true })
-
       const bookId = randomUUID()
-      deps.db.prepare(`INSERT INTO books (id, title, root_path) VALUES (?, ?, ?)`).run(bookId, title, bookRoot)
+      const placeholderTitle = idea.slice(0, 20)
+      const placeholderRoot = `pending:${bookId}`
+      deps.db.prepare(`INSERT INTO books (id, title, root_path) VALUES (?, ?, ?)`).run(bookId, placeholderTitle, placeholderRoot)
+
+      const onBookNamed = async (title: string): Promise<{ title: string; rootPath: string }> => {
+        const clean = title.replace(/[\\/]/g, ' ').trim() || '新书'
+        let finalTitle = clean
+        let n = 2
+        const titleTaken = (t: string) => {
+          const dup = deps.db.prepare(`SELECT id FROM books WHERE title = ? AND id != ?`).get(t, bookId)
+          if (dup) return true
+          return existsSync(join(workspaceRoot, 'novels', t))
+        }
+        while (titleTaken(finalTitle)) {
+          finalTitle = `${clean}（${n}）`
+          n += 1
+        }
+        const bookRoot = join(workspaceRoot, 'novels', finalTitle)
+        await mkdir(bookRoot, { recursive: true })
+        deps.db.prepare(`UPDATE books SET title = ?, root_path = ? WHERE id = ?`).run(finalTitle, bookRoot, bookId)
+        return { title: finalTitle, rootPath: bookRoot }
+      }
 
       const sessionId = randomUUID()
       const emitter = new EventEmitter()
       sessionEmitters.set(sessionId, emitter)
       sessionToBook.set(sessionId, bookId)
       emitter.on('event', (ev: any) => {
-        if (ev.type === 'done') {
-          activeBookIds.delete(bookId)
-          if (ev.status === 'succeeded') {
+        if (ev.type !== 'done') return
+        activeBookIds.delete(bookId)
+        const current: any = deps.db.prepare(`SELECT root_path FROM books WHERE id = ?`).get(bookId)
+        const stillPending = !current || String(current.root_path).startsWith('pending:')
+        if (ev.status === 'succeeded') {
+          if (!current || stillPending) return
+          try {
+            const bookRoot = current.root_path as string
+            const existing = deps.db.prepare(`SELECT id FROM chapters WHERE book_id = ? AND chapter_number = ?`).get(bookId, 1)
+            if (!existing) {
+              const chapterId = randomUUID()
+              deps.db.prepare(
+                `INSERT INTO chapters (id, book_id, chapter_number, title, source_path, stage) VALUES (?, ?, ?, ?, ?, ?)`,
+              ).run(chapterId, bookId, 1, '第一章', join(bookRoot, '正文', '第001章.md'), '待写作')
+            }
+          } catch (err) {
+            console.error('[book-create] failed to insert chapter 1:', err)
+          }
+        } else {
+          if (stillPending) {
             try {
-              // Insert chapter 1 row so the user can immediately continue-writing
-              const existing = deps.db.prepare(`SELECT id FROM chapters WHERE book_id = ? AND chapter_number = ?`).get(bookId, 1)
-              if (!existing) {
-                const chapterId = randomUUID()
-                deps.db.prepare(
-                  `INSERT INTO chapters (id, book_id, chapter_number, title, source_path, stage) VALUES (?, ?, ?, ?, ?, ?)`,
-                ).run(chapterId, bookId, 1, '第一章', join('正文', '第001章.md'), '待写作')
-              }
+              deps.db.prepare(`DELETE FROM books WHERE id = ?`).run(bookId)
             } catch (err) {
-              console.error('[book-create] failed to insert chapter 1:', err)
+              console.error('[book-create] failed to clean up placeholder row:', err)
             }
           }
         }
@@ -150,15 +175,17 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       try {
         const runner = await deps.service.start({
           actionKey: 'book.create',
-          bookMeta: { id: bookId, title, rootPath: bookRoot },
+          bookMeta: { id: bookId, title: placeholderTitle, rootPath: placeholderRoot, idea },
           chapter: null,
           sessionId, emitter,
+          onBookNamed,
         })
         return { sessionId, bookId, status: runner.status, traceId: runner.traceId }
       } catch (err: any) {
         sessionEmitters.delete(sessionId)
         sessionToBook.delete(sessionId)
         activeBookIds.delete(bookId)
+        try { deps.db.prepare(`DELETE FROM books WHERE id = ?`).run(bookId) } catch { /* ignore */ }
         return reply.code(500).send({ error: err.message })
       }
     },
