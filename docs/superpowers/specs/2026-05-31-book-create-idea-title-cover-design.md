@@ -122,3 +122,152 @@ if (update?.bookTitle && opts.onBookNamed) {
 - 取消在书名确认前：书库不留幽灵书、磁盘不留空目录
 - 书库每本书有「生成封面」按钮，点击能触发封面生成（或最小闭环）
 - `npm test` 不回归
+
+---
+
+# 第二部分：章节动作（编剧 / 写下一章 / 编辑本章）
+
+> 这是 Plan 2 的设计。独立子系统，开书（Plan 1）做完后再做。
+
+## 背景
+
+单书工作台现有章节动作按钮：继续写本章 / 去 AI 味本章 / 审稿本章，统一走 `POST /api/agent-sessions { actionKey, bookId, chapterId }`。但 `action-router.ts` 只注册了 `chapter.continue` 和 `book.create`——**`chapter.deslop` / `chapter.review` 点了会抛 `unknown action`**（现存 bug）。本部分新增三类能力并顺带补齐这两个缺失 action。
+
+需求来自用户：a 手动编辑 + b AI 改稿 + c 写下一章一条龙 + d 编剧(细纲)与写正文各自单点，全要。
+
+能力对应表：
+
+| 按钮 | actionKey | 作用 | 覆盖 |
+|---|---|---|---|
+| 编剧本章 | `chapter.outline` | 为选中章生成 `大纲/细纲_第NNN章.md` | d（细纲单点）|
+| 继续写本章 | `chapter.continue` | 只写选中章正文（已有）| d（正文单点）|
+| 写下一章 | `chapter.next` | 新建下一章 → 编剧 → 写正文（一条龙）| c |
+| 编辑本章(手动) | —（已有 ChapterContentEditor）| 编辑器改正文 + 保存 | a |
+| AI 改稿本章 | `chapter.revise` | 用户给指令，agent 改选中章正文 | b |
+
+## 设计
+
+### F. 新 phase
+
+**`write-outline`（编剧）** — tools `['read_file', 'list_dir', 'write_file']`，maxIterations 6
+- 读 `设定/`、`大纲/总纲.md`、`追踪/上下文.md`、上一章正文
+- 为第 N 章写 `大纲/细纲_第NNN章.md`：场景设定、出场人物、关键事件、信息揭示、章末钩子（300-500 字）
+- 落盘路径 `join(bookRoot, '大纲', \`细纲_第\${NNN}章.md\`)`，NNN = `String(chapterNumber).padStart(3,'0')`
+
+**`revise-chapter`（AI 改稿）** — tools `['read_file', 'write_file']`，maxIterations 6
+- 从 `ctx.previousPhaseResults.reviseInstruction` 取用户指令（见 G 的 instruction 透传）
+- read_file 选中章正文（`ctx.chapter.sourcePath`）+ `追踪/上下文.md`
+- 按指令改写，write_file 覆盖回 `ctx.chapter.sourcePath`
+- 指令为空时 onComplete 不报错，但 systemPrompt 要求 agent 先确认有指令再改
+
+### G. action-router 注册 + instruction 透传
+
+`ACTION_PHASES` 增补：
+```typescript
+'chapter.outline': [loadContextPhase, writeOutlinePhase],
+'chapter.revise':  [loadContextPhase, reviseChapterPhase],
+'chapter.deslop':  [loadContextPhase, deslopChapterPhase],   // 补齐缺失（最小实现）
+'chapter.review':  [loadContextPhase, reviewChapterPhase],   // 补齐缺失（最小实现）
+// chapter.next 不走 routeAction 的 chapterId 路径，单独 endpoint，见 H
+```
+`chapter.deslop` / `chapter.review` 用最小 phase（deslop 去 AI 味改写、review 产出审查意见到对话），不追求与 oh-story skill 同等深度——只为消除 `unknown action`。
+
+**instruction 透传**：`POST /api/agent-sessions` body 增加可选 `instruction?: string`。route 把它放进 `AgentStartInput`，runner 启动时塞入 `previousPhaseResults.reviseInstruction`（在第一个 phase 前预置）。需要 `AgentRunnerOptions` / runner 支持初始 `previousPhaseResults`（新增可选字段 `initialResults?: Record<string, unknown>`）。
+
+### H. 写下一章 `chapter.next`（新 endpoint）
+
+不能复用 `/api/agent-sessions`，因为下一章还不存在。新增：
+
+```
+POST /api/agent-sessions/chapter-next { bookId }
+```
+
+route 逻辑：
+1. 查该书最大 `chapter_number`（无章则为 0），`next = max + 1`
+2. `sourcePath = join(bookRoot, '正文', \`第\${String(next).padStart(3,'0')}章.md\`)`
+3. 写占位文件（`# 第N章\n<!-- 正文待 agent 续写 -->`）
+4. 插入 chapters 行：`(id, book_id, next, '第N章', sourcePath, '待写作')`，source_path 用**绝对路径**
+5. 启动 agent：`actionKey='chapter.next'`，phases = `[loadContextPhase, writeOutlinePhase, writeChapterPhase, updateTrackingPhase]`，chapter 传新建的章
+6. 返回 `{ sessionId, chapterId, status, traceId }`
+
+`chapter.next` 在 `action-router` 也注册同一 phase 序列（供 runner 内部使用），但触发只经新 endpoint。
+
+### I. 工作台 UI（book-workspace-page.tsx）
+
+- 动作按钮行增加：**编剧本章**（`chapter.outline`）、**AI 改稿本章**、**写下一章**（调 `/chapter-next`）
+- AI 改稿：点按钮先弹一个指令输入框（inline，复用现有 input 组件），填指令后才 POST `/api/agent-sessions { actionKey:'chapter.revise', bookId, chapterId, instruction }`
+- 写下一章成功后 `loadData()` 刷新章节列表并选中新章
+- 手动编辑（a）：已有 `ChapterContentEditor`，确认保存按钮可用即可（不新增）
+
+## 测试策略（test-first）
+
+| 模块 | 测试点 |
+|---|---|
+| `write-outline` phase | mock provider，断言读了上下文、write_file 写到 `大纲/细纲_第NNN章.md` |
+| `revise-chapter` phase | 断言从 previousPhaseResults.reviseInstruction 拿指令、write_file 覆盖 sourcePath |
+| `action-router` | 新 actionKey 都能解析出 phase 序列；未知仍抛错 |
+| runner `initialResults` | 传入后第一个 phase 的 ctx.previousPhaseResults 含该值 |
+| route `/chapter-next` | 正确算 next 章号、建占位文件+绝对路径 DB 行、启动 agent |
+| route `/agent-sessions` instruction | instruction 透传到 runner initialResults |
+| `book-workspace-page` | 新按钮渲染；AI 改稿弹指令框并带 instruction 提交；写下一章调 /chapter-next |
+
+不强制 TDD：outline/正文/改稿/审查的 LLM 输出质量，人工 eval。
+
+## 验收标准
+
+- 选中一章点「编剧本章」→ 生成 `大纲/细纲_第NNN章.md`
+- 点「写下一章」→ 章节列表多一章、自动选中、细纲+正文都生成
+- 点「AI 改稿本章」→ 填指令 → 本章正文按指令变化
+- 点「去 AI 味本章 / 审稿本章」不再报 `unknown action`
+- 手动在编辑器改正文能保存
+- `npm test` 不回归
+
+---
+
+# 第三部分：本书资产视图
+
+> 这是 Plan 3 的设计。独立子系统，Plan 2 后做。
+
+## 背景
+
+一本书的产物散落在 `设定/`、`大纲/`、`追踪/`、`正文/`、封面图等多处。用户要一个面板，把全部资产列出来、点开查看，文本类可编辑、封面显示图片。
+
+## 设计
+
+### J. 后端：通用书内文件读写（沙箱）
+
+现有 `chapter-content` 只针对章节。新增按书根的通用文件接口（复用 `resolveInsideRoot` 沙箱）：
+
+```
+GET  /api/books/:bookId/assets                 → { tree: AssetNode[] }
+GET  /api/books/:bookId/file?path=<相对路径>     → { path, content } | 图片二进制
+PUT  /api/books/:bookId/file { path, content }  → { saved: true }
+```
+
+- `assets`：递归列 bookRoot 下文件（排除隐藏目录如 `.claude`），按目录分组返回。`AssetNode = { path: string; type: 'dir'|'text'|'image'; children?: AssetNode[] }`，按扩展名判 image（.png/.jpg/.jpeg/.webp）。
+- `file` GET/PUT：路径必须经 `resolveInsideRoot(bookRoot, path)` 校验，越权返回 400。文本返回 JSON，图片按 content-type 返回二进制。
+- PUT 仅允许文本类扩展名（.md/.txt/.json），拒绝写图片。
+
+### K. 前端：资产面板
+
+- 工作台头部加「资产」切换（或侧栏 tab），打开 `BookAssetsPanel`
+- 左侧树：按 设定 / 大纲 / 追踪 / 正文 / 其它（封面）分组渲染 `assets` 树
+- 点文本节点 → 右侧用 `ChapterContentEditor` 同款编辑器加载 `GET /file`、保存走 `PUT /file`
+- 点图片节点 → 右侧 `<img src="/api/books/:id/file?path=...">` 显示封面
+- 只读 vs 可编辑：文本可编辑，图片只读
+
+## 测试策略（test-first）
+
+| 模块 | 测试点 |
+|---|---|
+| route `/assets` | 返回分组树、排除 `.claude`、image/text 分类正确 |
+| route `/file` GET/PUT | 沙箱越权 400、文本读写正确、PUT 拒绝图片扩展名 |
+| `BookAssetsPanel` | 渲染分组树、点文本进编辑器、点图片显示 img |
+
+## 验收标准
+
+- 资产面板能看到 设定/大纲/追踪/正文/封面 全部文件
+- 点文本能查看并编辑保存
+- 点封面显示图片
+- 越权路径（`../`）被拒
+- `npm test` 不回归
