@@ -11,7 +11,7 @@ export function createFakeProvider(): LlmProvider {
       if (last.includes('正文') && last.includes('write_file')) {
         return {
           content: '',
-          toolCalls: [{ id: 'w1', name: 'write_file', arguments: { path: '正文/第001章.md', content: '## 第001章\n\n主角醒来。' } }],
+          toolCalls: [{ id: 'w1', name: 'write_file', arguments: { path: '正文/第001章.md', content: '## 第001章\n\n' + '雨夜里他睁开眼，窗外电闪雷鸣，远处传来一声闷响。\n'.repeat(60) } }],
           usage: { promptTokens: 1, completionTokens: 1 },
           finishReason: 'tool_calls',
         }
