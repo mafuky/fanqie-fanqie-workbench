@@ -28,6 +28,7 @@ export interface AgentStartInput {
   sessionId: string
   emitter: EventEmitter
   onBookNamed?: (title: string) => Promise<{ title: string; rootPath: string }>
+  initialResults?: Record<string, unknown>
 }
 
 export interface AgentService {
@@ -91,6 +92,7 @@ export function createAgentService(opts: AgentServiceOptions): AgentService {
         sessionId: input.sessionId,
         emitter: input.emitter,
         onBookNamed: input.onBookNamed,
+        initialResults: input.initialResults,
       })
     },
   }
