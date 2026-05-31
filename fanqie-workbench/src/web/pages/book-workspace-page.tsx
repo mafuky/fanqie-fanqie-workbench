@@ -15,6 +15,8 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
   const [actionError, setActionError] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
   const [editorReloadKey, setEditorReloadKey] = useState(0)
+  const [reviseOpen, setReviseOpen] = useState(false)
+  const [reviseInstruction, setReviseInstruction] = useState('')
 
   const load = useCallback(async (refreshEditor = false) => {
     setLoading((current) => current || !detail)
