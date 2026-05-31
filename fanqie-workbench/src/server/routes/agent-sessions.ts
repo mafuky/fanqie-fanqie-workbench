@@ -137,7 +137,7 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
                 const chapterId = randomUUID()
                 deps.db.prepare(
                   `INSERT INTO chapters (id, book_id, chapter_number, title, source_path, stage) VALUES (?, ?, ?, ?, ?, ?)`,
-                ).run(chapterId, bookId, 1, '第一章', '正文/第001章.md', '待写作')
+                ).run(chapterId, bookId, 1, '第一章', join(bookRoot, '正文', '第001章.md'), '待写作')
               }
             } catch (err) {
               console.error('[book-create] failed to insert chapter 1:', err)
