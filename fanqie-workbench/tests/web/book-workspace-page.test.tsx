@@ -150,4 +150,75 @@ describe('BookWorkspacePage writing loop', () => {
 
     await waitFor(() => expect(loadCallCount).toBeGreaterThanOrEqual(2))
   })
+
+  it('renders the new chapter action buttons', async () => {
+    ;(globalThis as any).fetch = vi.fn(async (input: string) => {
+      if (input === '/api/books/book-1') return { ok: true, json: async () => detailWithChapter() }
+      if (input === '/api/books/book-1/sessions') return { ok: true, json: async () => ({ sessions: [] }) }
+      if (input === '/api/books/book-1/publications') return { ok: true, json: async () => ({ publications: [] }) }
+      if (input === '/api/chapters/chapter-1/content') return { ok: true, json: async () => ({ chapter: { id: 'chapter-1', title: '雾夜失踪', chapterNumber: 1 }, content: '# 第1章 雾夜失踪' }) }
+      throw new Error(`unexpected fetch ${input}`)
+    })
+    render(<BookWorkspacePage bookId="book-1" />)
+    expect(await screen.findByText('编剧本章')).toBeTruthy()
+    expect(screen.getByText('AI 改稿本章')).toBeTruthy()
+    expect(screen.getByText('写下一章')).toBeTruthy()
+  })
+
+  it('triggers chapter.outline action', async () => {
+    const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input === '/api/books/book-1') return { ok: true, json: async () => detailWithChapter() }
+      if (input === '/api/books/book-1/sessions') return { ok: true, json: async () => ({ sessions: [] }) }
+      if (input === '/api/books/book-1/publications') return { ok: true, json: async () => ({ publications: [] }) }
+      if (input === '/api/chapters/chapter-1/content') return { ok: true, json: async () => ({ chapter: { id: 'chapter-1', title: '雾夜失踪', chapterNumber: 1 }, content: '# 第1章 雾夜失踪' }) }
+      if (input === '/api/agent-sessions' && init?.method === 'POST') return { ok: true, json: async () => ({ sessionId: 'session-1', status: 'running', traceId: 1 }) }
+      throw new Error(`unexpected fetch ${input}`)
+    })
+    ;(globalThis as any).fetch = fetchMock
+    render(<BookWorkspacePage bookId="book-1" />)
+    fireEvent.click(await screen.findByText('编剧本章'))
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((c: any[]) => c[0] === '/api/agent-sessions' && c[1]?.method === 'POST' && JSON.parse(c[1].body).actionKey === 'chapter.outline')
+      expect(call).toBeTruthy()
+    })
+  })
+
+  it('opens an instruction input and submits chapter.revise with instruction', async () => {
+    const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input === '/api/books/book-1') return { ok: true, json: async () => detailWithChapter() }
+      if (input === '/api/books/book-1/sessions') return { ok: true, json: async () => ({ sessions: [] }) }
+      if (input === '/api/books/book-1/publications') return { ok: true, json: async () => ({ publications: [] }) }
+      if (input === '/api/chapters/chapter-1/content') return { ok: true, json: async () => ({ chapter: { id: 'chapter-1', title: '雾夜失踪', chapterNumber: 1 }, content: '# 第1章 雾夜失踪' }) }
+      if (input === '/api/agent-sessions' && init?.method === 'POST') return { ok: true, json: async () => ({ sessionId: 'session-1', status: 'running', traceId: 1 }) }
+      throw new Error(`unexpected fetch ${input}`)
+    })
+    ;(globalThis as any).fetch = fetchMock
+    render(<BookWorkspacePage bookId="book-1" />)
+    fireEvent.click(await screen.findByText('AI 改稿本章'))
+    const input = await screen.findByPlaceholderText('输入改稿指令，例如：把结尾改得更悬疑') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '把男主写得更狠' } })
+    fireEvent.click(screen.getByText('提交改稿'))
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((c: any[]) => c[0] === '/api/agent-sessions' && c[1]?.method === 'POST' && JSON.parse(c[1].body).actionKey === 'chapter.revise')
+      expect(call).toBeTruthy()
+      expect(JSON.parse(call![1].body).instruction).toBe('把男主写得更狠')
+    })
+  })
+
+  it('triggers chapter-next endpoint when 写下一章 clicked', async () => {
+    const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input === '/api/books/book-1') return { ok: true, json: async () => detailWithChapter() }
+      if (input === '/api/books/book-1/sessions') return { ok: true, json: async () => ({ sessions: [] }) }
+      if (input === '/api/books/book-1/publications') return { ok: true, json: async () => ({ publications: [] }) }
+      if (input === '/api/chapters/chapter-1/content') return { ok: true, json: async () => ({ chapter: { id: 'chapter-1', title: '雾夜失踪', chapterNumber: 1 }, content: '# 第1章 雾夜失踪' }) }
+      if (input === '/api/agent-sessions/chapter-next' && init?.method === 'POST') return { ok: true, json: async () => ({ sessionId: 'session-next', chapterId: 'chapter-2', status: 'running', traceId: 2 }) }
+      throw new Error(`unexpected fetch ${input}`)
+    })
+    ;(globalThis as any).fetch = fetchMock
+    render(<BookWorkspacePage bookId="book-1" />)
+    fireEvent.click(await screen.findByText('写下一章'))
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/agent-sessions/chapter-next', expect.objectContaining({ method: 'POST' }))
+    })
+  })
 })

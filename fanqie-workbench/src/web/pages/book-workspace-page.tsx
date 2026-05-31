@@ -89,6 +89,35 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
     setActiveSessionId(body.sessionId)
   }
 
+  const submitRevise = async () => {
+    if (!selectedChapterId || !reviseInstruction.trim()) return
+    setActionError(null)
+    const response = await fetch('/api/agent-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actionKey: 'chapter.revise', bookId, chapterId: selectedChapterId, instruction: reviseInstruction.trim() }),
+    })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) { setActionError(body.error || '启动失败'); return }
+    setActiveSessionId(body.sessionId)
+    setReviseOpen(false)
+    setReviseInstruction('')
+  }
+
+  const writeNextChapter = async () => {
+    setActionError(null)
+    const response = await fetch('/api/agent-sessions/chapter-next', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bookId }),
+    })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) { setActionError(body.error || '启动失败'); return }
+    setActiveSessionId(body.sessionId)
+    await load(true)
+    if (body.chapterId) setSelectedChapterId(body.chapterId)
+  }
+
   const refreshAfterSessionChange = async () => {
     await load(true)
   }
@@ -141,11 +170,25 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
           </aside>
 
           <section>
-            <div style={{ display: 'flex', gap: spacing.sm, marginBottom: spacing.md }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md }}>
               <button onClick={() => void startAction('chapter.continue')} disabled={!selectedChapter}>继续写本章</button>
+              <button onClick={() => void startAction('chapter.outline')} disabled={!selectedChapter}>编剧本章</button>
               <button onClick={() => void startAction('chapter.deslop')} disabled={!selectedChapter}>去 AI 味本章</button>
               <button onClick={() => void startAction('chapter.review')} disabled={!selectedChapter}>审稿本章</button>
+              <button onClick={() => setReviseOpen((v) => !v)} disabled={!selectedChapter}>AI 改稿本章</button>
+              <button onClick={() => void writeNextChapter()}>写下一章</button>
             </div>
+            {reviseOpen && (
+              <div style={{ display: 'flex', gap: spacing.sm, marginBottom: spacing.md }}>
+                <input
+                  value={reviseInstruction}
+                  onChange={(e) => setReviseInstruction(e.target.value)}
+                  placeholder="输入改稿指令，例如：把结尾改得更悬疑"
+                  style={{ flex: 1, padding: spacing.sm, borderRadius: radius.md, border: '1px solid var(--border)' }}
+                />
+                <button onClick={() => void submitRevise()} disabled={!reviseInstruction.trim()}>提交改稿</button>
+              </div>
+            )}
             {actionError && <div style={{ color: 'var(--red)', marginBottom: spacing.sm }}>{actionError}</div>}
             {selectedChapterId && <ChapterEditor key={selectedChapterId} chapterId={selectedChapterId} reloadKey={editorReloadKey} onSaved={() => void load()} />}
           </section>

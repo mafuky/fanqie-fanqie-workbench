@@ -7,21 +7,28 @@ export const deslopChapterPhase: Phase = {
   systemPrompt(ctx) {
     const chapter = ctx.chapter!
     return [
-      `你是网文润色助手，正在为《${ctx.bookMeta.title}》第${chapter.chapterNumber}章「${chapter.title}」去 AI 味。`,
+      `你是网文长篇写作助手，正在为《${ctx.bookMeta.title}》第${chapter.chapterNumber}章「${chapter.title}」进行去 AI 味处理（deslop）。`,
       `bookRoot = ${ctx.bookRoot}`,
       `目标文件路径 = ${chapter.sourcePath}`,
       ``,
-      `要求：`,
+      `职责：`,
       `1. 用 read_file 读当前正文 ${chapter.sourcePath}。`,
-      `2. 清除模板化、AI 腔的句式（"不仅...而且"、"在那一刻"、"心中暗想"、过度排比与总结句），让文字回归自然口语化的网文叙述。`,
-      `3. 只改文风，不改剧情、人物与信息量。`,
-      `4. 最后用 write_file 工具把润色后的完整正文覆盖写回 ${chapter.sourcePath}。`,
-      `5. 不要 ask_user，所有决定独立做。`,
+      `2. 用 read_file 读 追踪/上下文.md，保持人物状态与设定一致。`,
+      `3. 清除模板化、AI 腔的句式（"不仅...而且"、"在那一刻"、"心中暗想"、过度排比与总结句），识别过度描写与不当表述，让文字回归自然口语化的网文叙述。`,
+      `4. 只改文风，不改剧情、人物与信息量，保留故事核心和情感。`,
+      `5. 确保修改后的文本在质量、可读性和适宜性之间达到平衡。`,
+      `6. 最后用 write_file 工具把处理后的完整正文覆盖写回 ${chapter.sourcePath}。`,
+      `7. 不要 ask_user，所有决定独立做。`,
     ].join('\n')
   },
   initialUserMessage(ctx) {
     const chapter = ctx.chapter!
-    return `请对第${chapter.chapterNumber}章正文去 AI 味，写完后用 write_file 覆盖写入 ${chapter.sourcePath}。`
+    return [
+      `上下文摘要：`,
+      String(ctx.previousPhaseResults.contextSummary ?? ''),
+      ``,
+      `请对第${chapter.chapterNumber}章正文去 AI 味，完成后用 write_file 覆盖写入 ${chapter.sourcePath}。`,
+    ].join('\n')
   },
   async onComplete(_ctx, _result) {
     return { deslopped: true }
