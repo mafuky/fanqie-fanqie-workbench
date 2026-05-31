@@ -19,6 +19,8 @@ export interface AgentRunnerOptions {
   model: string
   emitter: EventEmitter
   onAskUserPending?: (pending: boolean) => void
+  /** Only set for book.create. Called after a phase produces `bookTitle`; backfills directory + DB and returns the final title/rootPath. */
+  onBookNamed?: (title: string) => Promise<{ title: string; rootPath: string }>
 }
 
 export type AgentRunnerStatus = 'pending' | 'running' | 'waiting-answer' | 'succeeded' | 'failed' | 'cancelled'
@@ -122,7 +124,15 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
           }
           if (lastResult && phase.onComplete) {
             const update = await phase.onComplete(ctx, lastResult)
-            if (update) Object.assign(previousPhaseResults, update)
+            if (update) {
+              Object.assign(previousPhaseResults, update)
+              const namedTitle = (update as { bookTitle?: unknown }).bookTitle
+              if (typeof namedTitle === 'string' && namedTitle && opts.onBookNamed) {
+                const { title, rootPath } = await opts.onBookNamed(namedTitle)
+                opts.bookMeta.title = title
+                opts.bookMeta.rootPath = rootPath
+              }
+            }
           }
           emit({ type: 'phase-done', phase: phase.name })
         }

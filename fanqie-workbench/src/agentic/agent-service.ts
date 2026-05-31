@@ -27,6 +27,7 @@ export interface AgentStartInput {
   chapter: ChapterMeta | null
   sessionId: string
   emitter: EventEmitter
+  onBookNamed?: (title: string) => Promise<{ title: string; rootPath: string }>
 }
 
 export interface AgentService {
@@ -89,6 +90,7 @@ export function createAgentService(opts: AgentServiceOptions): AgentService {
         actionKey: input.actionKey,
         sessionId: input.sessionId,
         emitter: input.emitter,
+        onBookNamed: input.onBookNamed,
       })
     },
   }
