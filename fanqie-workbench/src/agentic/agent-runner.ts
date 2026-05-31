@@ -81,47 +81,74 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
             { role: 'user', content: phase.initialUserMessage(ctx) },
           ]
           let lastResult: any = null
-          for (let iter = 0; iter < phase.maxIterations; iter++) {
-            checkCancelled()
-            const tools = opts.toolRegistry.listFiltered(phase.tools)
-            const result = await opts.provider.chat({
-              model: opts.model,
-              messages,
-              tools,
-              onDelta: (d) => emit({ type: 'delta', phase: phase.name, content: d }),
-              onToolCallDelta: (d) => emit({
-                type: 'tool-call-delta',
-                phase: phase.name,
-                toolCallIndex: d.index,
-                id: d.id,
-                name: d.name,
-                argsFragment: d.argsFragment,
-              }),
-            })
-            opts.traceStore.addUsage(traceId, result.usage)
-            emit({ type: 'message', phase: phase.name, role: 'assistant', content: result.content })
-            lastResult = result
-            if (result.toolCalls.length === 0) break
-            messages.push({ role: 'assistant', content: result.content, toolCalls: result.toolCalls })
-            for (const call of result.toolCalls) {
+          const runIterations = async () => {
+            for (let iter = 0; iter < phase.maxIterations; iter++) {
               checkCancelled()
-              emit({ type: 'tool-call', phase: phase.name, toolCallId: call.id, name: call.name, args: call.arguments })
-              if (call.name === 'ask_user') {
-                status = 'waiting-answer'
-                opts.onAskUserPending?.(true)
-              }
-              const toolResult = await opts.toolRegistry.execute(call, {
-                bookId: opts.bookId, bookRoot: opts.bookMeta.rootPath, emit,
+              const tools = opts.toolRegistry.listFiltered(phase.tools)
+              const result = await opts.provider.chat({
+                model: opts.model,
+                messages,
+                tools,
+                onDelta: (d) => emit({ type: 'delta', phase: phase.name, content: d }),
+                onToolCallDelta: (d) => emit({
+                  type: 'tool-call-delta',
+                  phase: phase.name,
+                  toolCallIndex: d.index,
+                  id: d.id,
+                  name: d.name,
+                  argsFragment: d.argsFragment,
+                }),
               })
-              if (call.name === 'ask_user') {
-                status = 'running'
-                opts.onAskUserPending?.(false)
+              opts.traceStore.addUsage(traceId, result.usage)
+              emit({ type: 'message', phase: phase.name, role: 'assistant', content: result.content })
+              lastResult = result
+              if (result.toolCalls.length === 0) break
+              messages.push({ role: 'assistant', content: result.content, toolCalls: result.toolCalls })
+              for (const call of result.toolCalls) {
+                checkCancelled()
+                emit({ type: 'tool-call', phase: phase.name, toolCallId: call.id, name: call.name, args: call.arguments })
+                if (call.name === 'ask_user') {
+                  status = 'waiting-answer'
+                  opts.onAskUserPending?.(true)
+                }
+                const toolResult = await opts.toolRegistry.execute(call, {
+                  bookId: opts.bookId, bookRoot: opts.bookMeta.rootPath, emit,
+                })
+                if (call.name === 'ask_user') {
+                  status = 'running'
+                  opts.onAskUserPending?.(false)
+                }
+                const content = toolResult.ok ? toolResult.result : `ERROR: ${toolResult.error}`
+                emit({ type: 'tool-result', phase: phase.name, toolCallId: call.id, name: call.name, result: content, ok: toolResult.ok })
+                messages.push({ role: 'tool', toolCallId: call.id, name: call.name, content })
               }
-              const content = toolResult.ok ? toolResult.result : `ERROR: ${toolResult.error}`
-              emit({ type: 'tool-result', phase: phase.name, toolCallId: call.id, name: call.name, result: content, ok: toolResult.ok })
-              messages.push({ role: 'tool', toolCallId: call.id, name: call.name, content })
             }
           }
+
+          await runIterations()
+
+          // Quality gate: read back what was produced; on failure, feed the problems
+          // back to the model for bounded repair rounds, then fail the phase if unmet.
+          // Skipped for the `fake` stub provider (unit tests) — there is no real artifact to gate.
+          if (phase.verify && opts.provider.name !== 'fake') {
+            const REPAIR_BUDGET = 2
+            const ctxForVerify: PhaseContext = { ...ctx, bookRoot: opts.bookMeta.rootPath }
+            let issues = await phase.verify(ctxForVerify)
+            for (let repair = 1; issues.length > 0 && repair <= REPAIR_BUDGET; repair++) {
+              checkCancelled()
+              emit({ type: 'message', phase: phase.name, role: 'assistant', content: `[自检] 发现 ${issues.length} 个问题，进入修复轮 ${repair}/${REPAIR_BUDGET}` })
+              messages.push({
+                role: 'user',
+                content: `自检未通过，必须用工具修复以下问题后再完成本阶段：\n- ${issues.join('\n- ')}`,
+              })
+              await runIterations()
+              issues = await phase.verify(ctxForVerify)
+            }
+            if (issues.length > 0) {
+              throw new Error(`阶段「${phase.name}」自检未通过：${issues.join('；')}`)
+            }
+          }
+
           if (lastResult && phase.onComplete) {
             const update = await phase.onComplete(ctx, lastResult)
             if (update) {
