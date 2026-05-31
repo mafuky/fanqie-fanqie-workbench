@@ -21,6 +21,8 @@ export interface AgentRunnerOptions {
   onAskUserPending?: (pending: boolean) => void
   /** Only set for book.create. Called after a phase produces `bookTitle`; backfills directory + DB and returns the final title/rootPath. */
   onBookNamed?: (title: string) => Promise<{ title: string; rootPath: string }>
+  /** Optional seed for previousPhaseResults, merged in before the first phase runs (e.g. reviseInstruction). */
+  initialResults?: Record<string, unknown>
 }
 
 export type AgentRunnerStatus = 'pending' | 'running' | 'waiting-answer' | 'succeeded' | 'failed' | 'cancelled'
@@ -46,7 +48,7 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
   let status: AgentRunnerStatus = 'pending'
   let currentPhase: string | null = null
   let cancelled = false
-  const previousPhaseResults: Record<string, unknown> = {}
+  const previousPhaseResults: Record<string, unknown> = { ...(opts.initialResults ?? {}) }
 
   function emit(ev: AgentEvent) {
     opts.emitter.emit('event', ev)
