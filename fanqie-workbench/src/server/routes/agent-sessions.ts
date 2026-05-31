@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve as resolvePath } from 'node:path'
 import type { FastifyInstance } from 'fastify'
@@ -187,6 +187,57 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
         sessionToBook.delete(sessionId)
         activeBookIds.delete(bookId)
         try { deps.db.prepare(`DELETE FROM books WHERE id = ?`).run(bookId) } catch { /* ignore */ }
+        return reply.code(500).send({ error: err.message })
+      }
+    },
+  )
+
+  app.post<{ Body: { bookId: string } }>(
+    '/api/agent-sessions/chapter-next',
+    async (req, reply) => {
+      const { bookId } = req.body
+      if (activeBookIds.has(bookId)) {
+        return reply.code(409).send({ error: `book ${bookId} already running` })
+      }
+      const book: any = deps.db.prepare(`SELECT id, title, root_path FROM books WHERE id = ?`).get(bookId)
+      if (!book) return reply.code(404).send({ error: 'book not found' })
+
+      const maxRow: any = deps.db.prepare(`SELECT MAX(chapter_number) AS maxNum FROM chapters WHERE book_id = ?`).get(bookId)
+      const next = (maxRow?.maxNum ?? 0) + 1
+      const nnn = String(next).padStart(3, '0')
+      const sourcePath = join(book.root_path, '正文', `第${nnn}章.md`)
+
+      await mkdir(join(book.root_path, '正文'), { recursive: true })
+      await writeFile(sourcePath, `# 第${next}章\n<!-- 正文待 agent 续写 -->\n`, 'utf8')
+
+      const chapterId = randomUUID()
+      deps.db.prepare(`INSERT INTO chapters (id, book_id, chapter_number, title, source_path, stage) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(chapterId, bookId, next, `第${next}章`, sourcePath, '待写作')
+
+      const sessionId = randomUUID()
+      const emitter = new EventEmitter()
+      sessionEmitters.set(sessionId, emitter)
+      sessionToBook.set(sessionId, bookId)
+      activeBookIds.add(bookId)
+      emitter.on('event', (ev: any) => {
+        if (ev.type === 'done') activeBookIds.delete(bookId)
+      })
+
+      try {
+        const runner = await deps.service.start({
+          actionKey: 'chapter.next',
+          bookMeta: { id: book.id, title: book.title, rootPath: book.root_path },
+          chapter: { id: chapterId, chapterNumber: next, title: `第${next}章`, sourcePath, stage: '待写作' },
+          sessionId, emitter,
+        })
+        return { sessionId, chapterId, status: runner.status, traceId: runner.traceId }
+      } catch (err: any) {
+        sessionEmitters.delete(sessionId)
+        sessionToBook.delete(sessionId)
+        activeBookIds.delete(bookId)
+        if (/already running|concurrent limit/i.test(err.message)) {
+          return reply.code(409).send({ error: err.message })
+        }
         return reply.code(500).send({ error: err.message })
       }
     },
