@@ -65,4 +65,42 @@ describe('agent-sessions routes', () => {
     const r2 = await app.inject({ method: 'POST', url: '/api/agent-sessions', payload: { actionKey: 'chapter.continue', bookId: 'b1', chapterId: 'c1' } })
     expect(r2.statusCode).toBe(200)  // should NOT be 409 — book finished
   })
+
+  it('passes instruction through to the agent as reviseInstruction', async () => {
+    const { app, service, db } = buildApp()
+    // Spy on service.start to capture the call
+    let startCalled: any = null
+    const originalStart = service.start
+    service.start = async (input: any) => {
+      startCalled = input
+      return originalStart.call(service, input)
+    }
+    const r = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions',
+      payload: { actionKey: 'chapter.continue', bookId: 'b1', chapterId: 'c1', instruction: '把结尾改得更悬疑' },
+    })
+    expect(r.statusCode).toBe(200)
+    expect(startCalled).toBeTruthy()
+    expect(startCalled.initialResults).toEqual({ reviseInstruction: '把结尾改得更悬疑' })
+  })
+
+  it('does not set initialResults when no instruction is provided', async () => {
+    const { app, service, db } = buildApp()
+    // Spy on service.start to capture the call
+    let startCalled: any = null
+    const originalStart = service.start
+    service.start = async (input: any) => {
+      startCalled = input
+      return originalStart.call(service, input)
+    }
+    const r = await app.inject({
+      method: 'POST',
+      url: '/api/agent-sessions',
+      payload: { actionKey: 'chapter.continue', bookId: 'b1', chapterId: 'c1' },
+    })
+    expect(r.statusCode).toBe(200)
+    expect(startCalled).toBeTruthy()
+    expect(startCalled.initialResults).toBeUndefined()
+  })
 })

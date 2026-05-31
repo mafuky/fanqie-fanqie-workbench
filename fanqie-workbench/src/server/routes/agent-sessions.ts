@@ -31,10 +31,10 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
   // check persists until the emitter fires `done`, regardless of how quickly the pool runner finishes.
   const activeBookIds = new Set<string>()
 
-  app.post<{ Body: { actionKey: string; bookId: string; chapterId: string } }>(
+  app.post<{ Body: { actionKey: string; bookId: string; chapterId: string; instruction?: string } }>(
     '/api/agent-sessions',
     async (req, reply) => {
-      const { actionKey, bookId, chapterId } = req.body
+      const { actionKey, bookId, chapterId, instruction } = req.body
       if (activeBookIds.has(bookId)) {
         return reply.code(409).send({ error: `book ${bookId} already running` })
       }
@@ -59,6 +59,7 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
             sourcePath: chapter.source_path, stage: chapter.stage,
           },
           sessionId, emitter,
+          ...(instruction ? { initialResults: { reviseInstruction: instruction } } : {}),
         })
         return { sessionId, status: runner.status, traceId: runner.traceId }
       } catch (err: any) {
