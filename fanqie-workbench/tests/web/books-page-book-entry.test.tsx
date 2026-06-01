@@ -95,7 +95,7 @@ describe('BooksPage book entry', () => {
     await waitFor(() => {
       expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/agent-sessions/book-create', expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ title: '现代悬疑复仇文，强反转' }),
+        body: JSON.stringify({ idea: '现代悬疑复仇文，强反转' }),
       }))
     })
 
