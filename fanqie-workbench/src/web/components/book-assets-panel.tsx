@@ -62,7 +62,8 @@ export function BookAssetsPanel({ bookId }: { bookId: string }) {
         onClick={() => void openNode(node)}
         style={{ paddingLeft: depth * 12 + spacing.sm, paddingTop: 4, paddingBottom: 4, cursor: node.type === 'dir' ? 'default' : 'pointer', fontSize: fontSize.sm }}
       >
-        {node.type === 'dir' ? '📁' : node.type === 'image' ? '🖼' : '📄'} {node.name}
+        <span aria-hidden>{node.type === 'dir' ? '📁' : node.type === 'image' ? '🖼' : '📄'}</span>{' '}
+        <span>{node.name}</span>
       </div>
       {node.children && node.children.length > 0 && renderNodes(node.children, depth + 1)}
     </div>

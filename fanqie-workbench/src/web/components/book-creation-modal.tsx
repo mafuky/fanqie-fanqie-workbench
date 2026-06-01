@@ -47,7 +47,7 @@ export function BookCreationModal({
       const r = await fetch('/api/agent-sessions/book-create', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ title: idea.trim() }),
+        body: JSON.stringify({ idea: idea.trim() }),
       })
       const body = await r.json().catch(() => ({}))
       if (!r.ok) {
