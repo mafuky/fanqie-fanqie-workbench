@@ -19,6 +19,7 @@ import type { PlatformAccountRecord } from '../../domain/platform-account.js'
 import type { SupportedPlatform } from '../../domain/platform.js'
 import { runPublishJob } from '../../publish/publish-runner.js'
 import { AdapterNotConfiguredError } from '../../publish/publisher-adapter.js'
+import { generateCover } from '../cover-service.js'
 
 function getDatabasePath() {
   return process.env.WORKBENCH_DB || 'data/workbench.sqlite'
@@ -543,24 +544,40 @@ export async function registerBookRoutes(app: FastifyInstance) {
     },
   )
 
-  // Minimal closure for the 生成封面 button. story-cover is a separate Claude-skill
-  // channel (not the agentic loop); actual GPT-Image-2 wiring is deferred. For now
-  // this validates the book is fully created and returns a queued placeholder.
+  // Generate a cover image into the book root via an OpenAI-compatible
+  // /images/generations endpoint. Image config defaults to the writing relay's
+  // key/base (OPENAI_API_KEY / OPENAI_BASE_URL) but can be overridden by
+  // IMAGE_API_KEY / IMAGE_BASE_URL / IMAGE_MODEL for a dedicated image provider.
   app.post<{ Params: { bookId: string } }>(
     '/api/books/:bookId/cover',
     async (request, reply) => {
       const db = openDatabase(getDatabasePath())
+      let book: { id: string; title: string; root_path: string } | undefined
       try {
-        const book = db.prepare('SELECT id, title, root_path FROM books WHERE id = ?').get(request.params.bookId) as
+        book = db.prepare('SELECT id, title, root_path FROM books WHERE id = ?').get(request.params.bookId) as
           | { id: string; title: string; root_path: string }
           | undefined
-        if (!book) return reply.code(404).send({ error: 'book not found' })
-        if (book.root_path.startsWith('pending:')) {
-          return reply.code(409).send({ error: 'book is still being created' })
-        }
-        return reply.code(202).send({ status: 'queued', bookId: book.id })
       } finally {
         db.close()
+      }
+      if (!book) return reply.code(404).send({ error: 'book not found' })
+      if (book.root_path.startsWith('pending:')) {
+        return reply.code(409).send({ error: 'book is still being created' })
+      }
+
+      const apiKey = process.env.IMAGE_API_KEY ?? process.env.OPENAI_API_KEY ?? ''
+      const baseUrl = process.env.IMAGE_BASE_URL ?? process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
+      const model = process.env.IMAGE_MODEL ?? 'gpt-image-1'
+      if (!apiKey) {
+        return reply.code(503).send({ error: 'image API key is not configured (set IMAGE_API_KEY or OPENAI_API_KEY)' })
+      }
+
+      try {
+        const result = await generateCover({ apiKey, baseUrl, model, title: book.title, bookRoot: book.root_path })
+        return reply.code(201).send({ status: 'done', bookId: book.id, path: result.path })
+      } catch (err: any) {
+        // 502: upstream image provider failed (e.g. relay has no image account → 503 upstream)
+        return reply.code(502).send({ error: err?.message ?? '封面生成失败' })
       }
     },
   )

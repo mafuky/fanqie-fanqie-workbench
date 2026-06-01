@@ -11,9 +11,13 @@ let app: FastifyInstance
 let tmp: string
 let dbPath: string
 let prevDb: string | undefined
+let prevImgKey: string | undefined
+let prevOpenAiKey: string | undefined
 
 beforeEach(async () => {
   prevDb = process.env.WORKBENCH_DB
+  prevImgKey = process.env.IMAGE_API_KEY
+  prevOpenAiKey = process.env.OPENAI_API_KEY
   tmp = mkdtempSync(join(tmpdir(), 'books-cover-'))
   dbPath = join(tmp, 'test.sqlite')
   process.env.WORKBENCH_DB = dbPath
@@ -32,15 +36,13 @@ afterEach(async () => {
   rmSync(tmp, { recursive: true, force: true })
   if (prevDb === undefined) delete process.env.WORKBENCH_DB
   else process.env.WORKBENCH_DB = prevDb
+  if (prevImgKey === undefined) delete process.env.IMAGE_API_KEY
+  else process.env.IMAGE_API_KEY = prevImgKey
+  if (prevOpenAiKey === undefined) delete process.env.OPENAI_API_KEY
+  else process.env.OPENAI_API_KEY = prevOpenAiKey
 })
 
 describe('POST /api/books/:bookId/cover', () => {
-  it('queues a cover job for a book with a real root_path', async () => {
-    const res = await app.inject({ method: 'POST', url: '/api/books/real-1/cover' })
-    expect(res.statusCode).toBe(202)
-    expect(res.json()).toMatchObject({ status: 'queued' })
-  })
-
   it('returns 409 for a book that is still pending', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/books/pending-1/cover' })
     expect(res.statusCode).toBe(409)
@@ -49,5 +51,13 @@ describe('POST /api/books/:bookId/cover', () => {
   it('returns 404 for an unknown book', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/books/nope/cover' })
     expect(res.statusCode).toBe(404)
+  })
+
+  it('returns 503 when no image API key is configured', async () => {
+    delete process.env.IMAGE_API_KEY
+    delete process.env.OPENAI_API_KEY
+    const res = await app.inject({ method: 'POST', url: '/api/books/real-1/cover' })
+    expect(res.statusCode).toBe(503)
+    expect(res.json().error).toMatch(/image API key/i)
   })
 })
