@@ -201,11 +201,20 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       }
       const book: any = deps.db.prepare(`SELECT id, title, root_path FROM books WHERE id = ?`).get(bookId)
       if (!book) return reply.code(404).send({ error: 'book not found' })
+      if (String(book.root_path).startsWith('pending:')) {
+        return reply.code(409).send({ error: 'book is still being created' })
+      }
 
       const maxRow: any = deps.db.prepare(`SELECT MAX(chapter_number) AS maxNum FROM chapters WHERE book_id = ?`).get(bookId)
       const next = (maxRow?.maxNum ?? 0) + 1
       const nnn = String(next).padStart(3, '0')
       const sourcePath = join(book.root_path, '正文', `第${nnn}章.md`)
+
+      // Guard against a leftover chapters row pointing at the same path (UNIQUE(source_path)).
+      const dupe: any = deps.db.prepare(`SELECT id FROM chapters WHERE source_path = ?`).get(sourcePath)
+      if (dupe) {
+        return reply.code(409).send({ error: `chapter ${next} already exists` })
+      }
 
       await mkdir(join(book.root_path, '正文'), { recursive: true })
       await writeFile(sourcePath, `# 第${next}章\n<!-- 正文待 agent 续写 -->\n`, 'utf8')
@@ -235,6 +244,8 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
         sessionEmitters.delete(sessionId)
         sessionToBook.delete(sessionId)
         activeBookIds.delete(bookId)
+        // Roll back the placeholder chapter row so a failed start leaves no ghost chapter.
+        try { deps.db.prepare(`DELETE FROM chapters WHERE id = ?`).run(chapterId) } catch { /* ignore */ }
         if (/already running|concurrent limit/i.test(err.message)) {
           return reply.code(409).send({ error: err.message })
         }

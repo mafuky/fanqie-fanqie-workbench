@@ -164,7 +164,9 @@ export async function registerBookRoutes(app: FastifyInstance) {
   app.get('/api/books', async () => {
     const db = openDatabase(getDatabasePath())
     try {
-      const books = db.prepare('SELECT id, title, root_path, account_id FROM books ORDER BY title').all()
+      // Exclude in-progress placeholder rows (root_path = 'pending:{bookId}') so a
+      // mid-creation or abandoned book.create never shows as a ghost card.
+      const books = db.prepare(`SELECT id, title, root_path, account_id FROM books WHERE root_path NOT LIKE 'pending:%' ORDER BY title`).all()
       return { books }
     } finally {
       db.close()

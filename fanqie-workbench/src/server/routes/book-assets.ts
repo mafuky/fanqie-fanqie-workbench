@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import { join, relative, sep, extname, dirname } from 'node:path'
 import { openDatabase } from '../../db/client.js'
 import { resolveInsideRoot } from '../../agentic/tools/sandbox.js'
@@ -58,7 +58,11 @@ function getBookRoot(bookId: string): string | undefined {
     const book = db.prepare('SELECT root_path FROM books WHERE id = ?').get(bookId) as
       | { root_path: string }
       | undefined
-    return book?.root_path
+    // Treat a still-creating book (root_path = 'pending:{bookId}') as not-found so
+    // assets endpoints never readdir/write against the placeholder path (would land
+    // junk in the server CWD).
+    if (!book || book.root_path.startsWith('pending:')) return undefined
+    return book.root_path
   } finally {
     db.close()
   }
@@ -88,6 +92,7 @@ export async function registerBookAssetsRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'invalid path' })
       }
       if (!existsSync(abs)) return reply.code(404).send({ error: 'file not found' })
+      if (statSync(abs).isDirectory()) return reply.code(400).send({ error: 'path is a directory' })
       const ext = extname(abs).toLowerCase()
       if (MIME[ext]) {
         reply.header('content-type', MIME[ext])

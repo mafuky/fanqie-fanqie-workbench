@@ -115,9 +115,11 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
     })
     const body = await response.json().catch(() => ({}))
     if (!response.ok) { setActionError(body.error || '启动失败'); return }
-    setActiveSessionId(body.sessionId)
+    // Reload first (refreshes chapter list), THEN set session + select the new chapter,
+    // so load()'s setActiveSessionId(null) can't clobber the just-started session.
     await load(true)
     if (body.chapterId) setSelectedChapterId(body.chapterId)
+    setActiveSessionId(body.sessionId)
   }
 
   const refreshAfterSessionChange = async () => {

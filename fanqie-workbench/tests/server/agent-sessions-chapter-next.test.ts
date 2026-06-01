@@ -73,4 +73,27 @@ describe('agent-sessions chapter-next route', () => {
     expect(row.chapter_number).toBe(4)
     expect(row.source_path).toBe(join(bookRoot, '正文', '第004章.md'))
   })
+
+  it('returns 409 for a still-pending book and writes no chapter', async () => {
+    const app = Fastify()
+    registerAgentSessionsRoutes(app, { db, service: fakeService() })
+    const bookId = 'book-cn-pending'
+    db.prepare(`INSERT INTO books (id, title, root_path) VALUES (?, ?, ?)`).run(bookId, '占位', `pending:${bookId}`)
+    const res = await app.inject({ method: 'POST', url: '/api/agent-sessions/chapter-next', payload: { bookId } })
+    expect(res.statusCode).toBe(409)
+    const count: any = db.prepare(`SELECT COUNT(*) AS n FROM chapters WHERE book_id = ?`).get(bookId)
+    expect(count.n).toBe(0)
+  })
+
+  it('rolls back the placeholder chapter row when the agent fails to start', async () => {
+    const service = fakeService({ start: async () => { throw new Error('boom') } })
+    const app = Fastify()
+    registerAgentSessionsRoutes(app, { db, service })
+    const bookId = 'book-cn-fail'
+    db.prepare(`INSERT INTO books (id, title, root_path) VALUES (?, ?, ?)`).run(bookId, '测试书', bookRoot)
+    const res = await app.inject({ method: 'POST', url: '/api/agent-sessions/chapter-next', payload: { bookId } })
+    expect(res.statusCode).toBe(500)
+    const count: any = db.prepare(`SELECT COUNT(*) AS n FROM chapters WHERE book_id = ?`).get(bookId)
+    expect(count.n).toBe(0)
+  })
 })
