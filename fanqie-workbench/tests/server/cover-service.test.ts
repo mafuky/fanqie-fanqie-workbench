@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildCoverPrompt, decodeImageData, generateCover, inferGenre, saveCoverImage } from '../../src/server/cover-service.js'
+import { buildCoverPrompt, decodeImageData, deriveCoverHints, derivePlatform, generateCover, inferGenre, matchGenre, saveCoverImage } from '../../src/server/cover-service.js'
 
 let root: string
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'cover-')) })
@@ -141,5 +141,24 @@ describe('saveCoverImage', () => {
     const abs = join(root, '封面.png')
     expect(existsSync(abs)).toBe(true)
     expect(readFileSync(abs).equals(PNG)).toBe(true)
+  })
+})
+
+describe('genre/platform hints from 题材定位 text', () => {
+  it('matchGenre returns undefined when nothing matches', () => {
+    expect(matchGenre('随便一个名字')).toBeUndefined()
+  })
+  it('matchGenre detects genre from a positioning line', () => {
+    expect(matchGenre('题材类型：古言重生 + 朝堂权谋 + 嫡女复仇')).toBe('ancient-romance')
+  })
+  it('derivePlatform reads the named platform', () => {
+    expect(derivePlatform('目标平台：晋江')).toBe('晋江')
+    expect(derivePlatform('知乎盐言短篇')).toBe('知乎盐言')
+    expect(derivePlatform('没有平台信息')).toBeUndefined()
+  })
+  it('deriveCoverHints combines genre + platform', () => {
+    const h = deriveCoverHints('题材类型：古言宫斗复仇\n目标平台：番茄')
+    expect(h.genre).toBe('ancient-romance')
+    expect(h.platform).toBe('番茄')
   })
 })

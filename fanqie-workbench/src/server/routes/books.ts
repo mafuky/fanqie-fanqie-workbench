@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { rm } from 'node:fs/promises'
-import { relative, resolve } from 'node:path'
+import { readFile, rm } from 'node:fs/promises'
+import { join, relative, resolve } from 'node:path'
 import { openDatabase } from '../../db/client.js'
 import { syncWorkspaceBooks } from '../../db/repositories/books-repo.js'
 import {
@@ -19,7 +19,7 @@ import type { PlatformAccountRecord } from '../../domain/platform-account.js'
 import type { SupportedPlatform } from '../../domain/platform.js'
 import { runPublishJob } from '../../publish/publish-runner.js'
 import { AdapterNotConfiguredError } from '../../publish/publisher-adapter.js'
-import { buildCoverPrompt, generateCover, inferGenre, saveCoverImage } from '../cover-service.js'
+import { buildCoverPrompt, deriveCoverHints, generateCover, inferGenre, saveCoverImage, type CoverPlatform } from '../cover-service.js'
 
 function getDatabasePath() {
   return process.env.WORKBENCH_DB || 'data/workbench.sqlite'
@@ -596,7 +596,19 @@ export async function registerBookRoutes(app: FastifyInstance) {
       if (book.root_path.startsWith('pending:')) {
         return reply.code(409).send({ error: 'book is still being created' })
       }
-      return reply.send({ prompt: buildCoverPrompt(book.title), genre: inferGenre(book.title) })
+      // Prefer the book's 设定/题材定位.md (real genre + platform) over guessing
+      // from the title; fall back to title-based inference when it's absent.
+      let genre = inferGenre(book.title)
+      let platform: CoverPlatform = '番茄'
+      try {
+        const positioning = await readFile(join(book.root_path, '设定', '题材定位.md'), 'utf8')
+        const hints = deriveCoverHints(positioning)
+        if (hints.genre) genre = hints.genre
+        if (hints.platform) platform = hints.platform
+      } catch {
+        // no 题材定位.md → keep title-based inference
+      }
+      return reply.send({ prompt: buildCoverPrompt(book.title, { genre, platform }), genre, platform })
     },
   )
 

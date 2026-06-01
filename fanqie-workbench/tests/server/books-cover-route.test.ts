@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import Database from 'better-sqlite3'
@@ -31,6 +31,10 @@ beforeEach(async () => {
   db.prepare('INSERT INTO books (id, title, root_path) VALUES (?, ?, ?)').run('real-1', '雾港疑局', '/novels/雾港疑局')
   db.prepare('INSERT INTO books (id, title, root_path) VALUES (?, ?, ?)').run('pending-1', '占位', 'pending:pending-1')
   db.prepare('INSERT INTO books (id, title, root_path) VALUES (?, ?, ?)').run('fs-1', '剑道独尊', bookDir)
+  const posDir = join(tmp, 'book-pos')
+  mkdirSync(join(posDir, '设定'), { recursive: true })
+  writeFileSync(join(posDir, '设定', '题材定位.md'), '题材类型：古言宫斗复仇\n目标平台：晋江')
+  db.prepare('INSERT INTO books (id, title, root_path) VALUES (?, ?, ?)').run('pos-1', '某本书', posDir)
   db.close()
   app = Fastify()
   await registerBookRoutes(app)
@@ -78,6 +82,16 @@ describe('GET /api/books/:bookId/cover/prompt', () => {
     const body = res.json()
     expect(body.prompt).toContain("Title text '剑道独尊'")
     expect(body.genre).toBe('xianxia')
+  })
+
+  it('uses 题材定位.md to set genre and platform when present', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/books/pos-1/cover/prompt' })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.genre).toBe('ancient-romance')
+    expect(body.platform).toBe('晋江')
+    expect(body.prompt).toContain('dreamy ethereal aesthetic') // 晋江 platform style
+    expect(body.prompt).toContain('Kai script') // ancient-romance title font
   })
 
   it('returns 409 for a pending book', async () => {

@@ -147,12 +147,45 @@ const GENRE_KEYWORDS: Array<{ genre: CoverGenre; keywords: string[] }> = [
   { genre: 'modern-romance', keywords: ['契约', '替嫁', '甜宠', '娇妻', '萌宝', '闪婚'] },
 ]
 
+/** Return the first genre whose keyword appears in the text, or undefined. */
+export function matchGenre(text: string): CoverGenre | undefined {
+  for (const { genre, keywords } of GENRE_KEYWORDS) {
+    if (keywords.some((kw) => text.includes(kw))) return genre
+  }
+  return undefined
+}
+
 /** Infer a cover genre from the book title; defaults to modern-romance. */
 export function inferGenre(title: string): CoverGenre {
-  for (const { genre, keywords } of GENRE_KEYWORDS) {
-    if (keywords.some((kw) => title.includes(kw))) return genre
+  return matchGenre(title) ?? 'modern-romance'
+}
+
+/** Platform keyword table (most specific first). */
+const PLATFORM_KEYWORDS: Array<{ platform: CoverPlatform; keywords: string[] }> = [
+  { platform: '知乎盐言', keywords: ['知乎', '盐言'] },
+  { platform: '刺猬猫', keywords: ['刺猬猫'] },
+  { platform: '番茄', keywords: ['番茄'] },
+  { platform: '七猫', keywords: ['七猫'] },
+  { platform: '晋江', keywords: ['晋江'] },
+  { platform: '起点', keywords: ['起点'] },
+]
+
+/** Detect a target platform mentioned in free text (e.g. 题材定位.md), or undefined. */
+export function derivePlatform(text: string): CoverPlatform | undefined {
+  for (const { platform, keywords } of PLATFORM_KEYWORDS) {
+    if (keywords.some((kw) => text.includes(kw))) return platform
   }
-  return 'modern-romance'
+  return undefined
+}
+
+export interface CoverStyleHints {
+  genre?: CoverGenre
+  platform?: CoverPlatform
+}
+
+/** Derive genre + platform hints from a book's 题材定位.md text. */
+export function deriveCoverHints(positioningText: string): CoverStyleHints {
+  return { genre: matchGenre(positioningText), platform: derivePlatform(positioningText) }
 }
 
 /**
