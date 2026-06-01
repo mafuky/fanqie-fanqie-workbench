@@ -12,6 +12,7 @@ import { registerReviewCheckpointRoutes } from './routes/review-checkpoints.js'
 import { registerMarketScanRoutes } from './routes/market-scans.js'
 import { registerAccountRoutes } from './routes/accounts.js'
 import { registerStorySetupRoutes } from './routes/story-setup.js'
+import { registerBookAssetsRoutes } from './routes/book-assets.js'
 import { createAgentService } from '../agentic/agent-service.js'
 import { createOpenAiProvider } from '../agentic/providers/openai-provider.js'
 import { registerAgentSessionsRoutes, getSessionEmitter, getSessionBook } from './routes/agent-sessions.js'
@@ -42,6 +43,7 @@ export async function buildServer(opts: BuildServerOptions = {}) {
   await registerMarketScanRoutes(app)
   await registerAccountRoutes(app)
   await registerStorySetupRoutes(app)
+  await registerBookAssetsRoutes(app)
   await app.register(websocket)
 
   // Register agent sessions route with a real OpenAI-backed service when running as a server,
