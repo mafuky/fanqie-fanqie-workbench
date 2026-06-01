@@ -64,6 +64,26 @@ describe('AgentPanel', () => {
     }))
   })
 
+  it('clicking 其它(自定义) focuses the input instead of submitting the literal label', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as any)
+    render(<AgentPanel sessionId="s11" />)
+    await act(async () => {
+      FakeSocket.last?.fire('message', { data: JSON.stringify({ type: 'question', question: '书名？', options: [{ label: '雾港疑局' }, { label: '其它(自定义)' }], multiSelect: false }) })
+    })
+    const { fireEvent } = await import('@testing-library/react')
+    fireEvent.click(screen.getByText('其它(自定义)'))
+    // must NOT have submitted the literal "其它(自定义)" label
+    expect(fetchSpy).not.toHaveBeenCalled()
+    // input should be focused so the user can type
+    expect(document.activeElement).toBe(screen.getByTestId('custom-answer-input'))
+    // a real preset option still submits immediately
+    fireEvent.click(screen.getByText('雾港疑局'))
+    expect(fetchSpy).toHaveBeenCalledWith('/api/agent-sessions/s11/answer', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ answer: '雾港疑局' }),
+    }))
+  })
+
   it('renders streaming text content via delta events', async () => {
     render(<AgentPanel sessionId="s1" />)
     await act(async () => {

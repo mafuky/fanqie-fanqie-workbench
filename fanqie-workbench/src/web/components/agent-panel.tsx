@@ -27,6 +27,7 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
   const [customAnswer, setCustomAnswer] = useState('')
   const wsRef = useRef<WebSocket | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const customInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     const el = scrollRef.current
@@ -105,6 +106,20 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
     setCustomAnswer('')
   }
 
+  // An option like 其它(自定义) / 其他 / 自定义 / Other means "let me type my own".
+  // Clicking it must NOT submit the literal label; it focuses the free-text input.
+  function isCustomOption(label: string) {
+    return /其它|其他|自定义|other|custom/i.test(label)
+  }
+
+  function onOptionClick(label: string) {
+    if (isCustomOption(label)) {
+      customInputRef.current?.focus()
+      return
+    }
+    void answer(label)
+  }
+
   const grouped: Record<string, Event[]> = {}
   let currentPhase = 'init'
   for (const ev of events) {
@@ -132,11 +147,12 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
           <div style={{ fontWeight: 700, marginBottom: 8 }}>{pendingQuestion.question}</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {pendingQuestion.options.map((opt) => (
-              <button key={opt.label} onClick={() => answer(opt.label)}>{opt.label}</button>
+              <button key={opt.label} onClick={() => onOptionClick(opt.label)}>{opt.label}</button>
             ))}
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <input
+              ref={customInputRef}
               aria-label="自定义回答"
               data-testid="custom-answer-input"
               value={customAnswer}
