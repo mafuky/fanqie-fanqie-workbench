@@ -1,3 +1,13 @@
 /.claude/
 /.idea/
-/.idea/
+
+# OS / editor cruft
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# fanqie-workbench runtime artifacts
+fanqie-workbench/data/
+fanqie-workbench/test-results/
+fanqie-workbench/.vitest-result.json
