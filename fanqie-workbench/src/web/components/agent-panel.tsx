@@ -24,6 +24,7 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
   const [events, setEvents] = useState<Event[]>([])
   const [textBuffers, setTextBuffers] = useState<Record<string, string>>({})
   const [toolBuffers, setToolBuffers] = useState<Record<string, Record<number, InProgressTool>>>({})
+  const [customAnswer, setCustomAnswer] = useState('')
   const wsRef = useRef<WebSocket | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -101,6 +102,7 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
       body: JSON.stringify({ answer: label }),
     })
     setEvents((prev) => [...prev, { type: 'message' as const, phase: 'system', role: 'user', content: `[answered] ${label}` }])
+    setCustomAnswer('')
   }
 
   const grouped: Record<string, Event[]> = {}
@@ -132,6 +134,28 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
             {pendingQuestion.options.map((opt) => (
               <button key={opt.label} onClick={() => answer(opt.label)}>{opt.label}</button>
             ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <input
+              aria-label="自定义回答"
+              data-testid="custom-answer-input"
+              value={customAnswer}
+              onChange={(e) => setCustomAnswer(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && customAnswer.trim()) {
+                  e.preventDefault()
+                  void answer(customAnswer.trim())
+                }
+              }}
+              placeholder="或输入你自己的答案，回车发送…"
+              style={{ flex: 1, padding: '6px 8px', fontFamily: 'inherit', fontSize: 13, color: '#000' }}
+            />
+            <button
+              disabled={!customAnswer.trim()}
+              onClick={() => customAnswer.trim() && void answer(customAnswer.trim())}
+            >
+              发送
+            </button>
           </div>
         </div>
       )}

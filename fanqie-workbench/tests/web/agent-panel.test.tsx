@@ -48,6 +48,22 @@ describe('AgentPanel', () => {
     expect(fetchSpy).toHaveBeenCalledWith('/api/agent-sessions/s9/answer', expect.objectContaining({ method: 'POST' }))
   })
 
+  it('POSTs a custom typed answer via the free-text input', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue({ ok: true, json: async () => ({}) } as any)
+    render(<AgentPanel sessionId="s10" />)
+    await act(async () => {
+      FakeSocket.last?.fire('message', { data: JSON.stringify({ type: 'question', question: '书名？', options: [{ label: '其它(自定义)' }], multiSelect: false }) })
+    })
+    const { fireEvent } = await import('@testing-library/react')
+    const input = screen.getByTestId('custom-answer-input') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '雾港疑局' } })
+    fireEvent.click(screen.getByText('发送'))
+    expect(fetchSpy).toHaveBeenCalledWith('/api/agent-sessions/s10/answer', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ answer: '雾港疑局' }),
+    }))
+  })
+
   it('renders streaming text content via delta events', async () => {
     render(<AgentPanel sessionId="s1" />)
     await act(async () => {
