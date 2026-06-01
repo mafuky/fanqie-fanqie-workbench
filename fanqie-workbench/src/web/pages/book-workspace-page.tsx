@@ -184,7 +184,7 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
           <section>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md }}>
               <button onClick={() => void startAction('chapter.continue')} disabled={!selectedChapter}>继续写本章</button>
-              <button onClick={() => void startAction('chapter.outline')} disabled={!selectedChapter}>编剧本章</button>
+              <button onClick={() => void startAction('chapter.outline')} disabled={!selectedChapter}>写本章细纲</button>
               <button onClick={() => void startAction('chapter.deslop')} disabled={!selectedChapter}>去 AI 味本章</button>
               <button onClick={() => void startAction('chapter.review')} disabled={!selectedChapter}>审稿本章</button>
               <button onClick={() => setReviseOpen((v) => !v)} disabled={!selectedChapter}>AI 改稿本章</button>

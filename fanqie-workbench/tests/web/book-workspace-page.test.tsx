@@ -160,7 +160,7 @@ describe('BookWorkspacePage writing loop', () => {
       throw new Error(`unexpected fetch ${input}`)
     })
     render(<BookWorkspacePage bookId="book-1" />)
-    expect(await screen.findByText('编剧本章')).toBeTruthy()
+    expect(await screen.findByText('写本章细纲')).toBeTruthy()
     expect(screen.getByText('AI 改稿本章')).toBeTruthy()
     expect(screen.getByText('写下一章')).toBeTruthy()
   })
@@ -176,7 +176,7 @@ describe('BookWorkspacePage writing loop', () => {
     })
     ;(globalThis as any).fetch = fetchMock
     render(<BookWorkspacePage bookId="book-1" />)
-    fireEvent.click(await screen.findByText('编剧本章'))
+    fireEvent.click(await screen.findByText('写本章细纲'))
     await waitFor(() => {
       const call = fetchMock.mock.calls.find((c: any[]) => c[0] === '/api/agent-sessions' && c[1]?.method === 'POST' && JSON.parse(c[1].body).actionKey === 'chapter.outline')
       expect(call).toBeTruthy()
