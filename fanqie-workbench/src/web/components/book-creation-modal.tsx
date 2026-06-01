@@ -67,7 +67,7 @@ export function BookCreationModal({
 
   if (sessionId) {
     return (
-      <Modal open={open} onClose={onClose} title={`正在创建《${idea.trim()}》`} footer={<Button variant="ghost" onClick={onClose}>关闭</Button>}>
+      <Modal open={open} onClose={onClose} title="正在创建新书…" footer={<Button variant="ghost" onClick={onClose}>关闭</Button>}>
         <div style={{ minWidth: 480 }}>
           <AgentPanel
             sessionId={sessionId}
