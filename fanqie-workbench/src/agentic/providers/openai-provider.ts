@@ -4,10 +4,20 @@ import type { ChatInput, ChatMessage, ChatResult, LlmProvider, ToolCall } from '
 export interface OpenAiProviderOptions {
   apiKey: string
   baseUrl?: string
+  /** Per-request timeout in ms. Default 120s. Prevents a non-responsive relay from
+   * hanging a phase for the SDK's default ~10 minutes. */
+  timeoutMs?: number
+  /** SDK auto-retries on timeout/network/429/5xx. Default 2. */
+  maxRetries?: number
 }
 
 export function createOpenAiProvider(options: OpenAiProviderOptions): LlmProvider {
-  const client = new OpenAI({ apiKey: options.apiKey, baseURL: options.baseUrl })
+  const client = new OpenAI({
+    apiKey: options.apiKey,
+    baseURL: options.baseUrl,
+    timeout: options.timeoutMs ?? 120_000,
+    maxRetries: options.maxRetries ?? 2,
+  })
   return {
     name: 'openai',
     async chat(input: ChatInput): Promise<ChatResult> {

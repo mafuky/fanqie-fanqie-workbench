@@ -66,6 +66,8 @@ export async function buildServer(opts: BuildServerOptions = {}) {
     const provider = createOpenAiProvider({
       apiKey: process.env.OPENAI_API_KEY ?? '',
       baseUrl: process.env.OPENAI_BASE_URL,
+      timeoutMs: Number(process.env.AGENT_REQUEST_TIMEOUT_MS ?? 120_000),
+      maxRetries: Number(process.env.AGENT_MAX_RETRIES ?? 2),
     })
     const agentService = createAgentService({
       db,
