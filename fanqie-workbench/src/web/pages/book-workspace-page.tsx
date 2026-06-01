@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AgentPanel } from '../components/agent-panel.js'
 import { ChapterEditor } from '../components/chapter-editor.js'
+import { BookAssetsPanel } from '../components/book-assets-panel.js'
 import { spacing, fontSize, radius } from '../styles/tokens.js'
 
 type ChapterRow = { id: string; chapter_number: number; title: string; stage: string }
@@ -17,6 +18,7 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
   const [editorReloadKey, setEditorReloadKey] = useState(0)
   const [reviseOpen, setReviseOpen] = useState(false)
   const [reviseInstruction, setReviseInstruction] = useState('')
+  const [showAssets, setShowAssets] = useState(false)
 
   const load = useCallback(async (refreshEditor = false) => {
     setLoading((current) => current || !detail)
@@ -148,7 +150,15 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
 
       <nav style={{ display: 'flex', gap: spacing.sm, color: 'var(--text-muted)', fontSize: fontSize.sm }}>
         <span>Dashboard</span><span>写作</span><span>Claude 会话</span><span>创作流程</span><span>发布</span><span>资料 / 工具</span>
+        <span style={{ flex: 1 }} />
+        <button onClick={() => setShowAssets((v) => !v)}>资产</button>
       </nav>
+
+      {showAssets && (
+        <section style={{ marginBottom: spacing.lg }}>
+          <BookAssetsPanel bookId={bookId} />
+        </section>
+      )}
 
       {error && <div style={{ color: 'var(--red)' }}>{error}</div>}
 

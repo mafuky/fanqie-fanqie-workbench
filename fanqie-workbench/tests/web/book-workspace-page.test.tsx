@@ -221,4 +221,19 @@ describe('BookWorkspacePage writing loop', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/agent-sessions/chapter-next', expect.objectContaining({ method: 'POST' }))
     })
   })
+
+  it('toggles the assets panel and loads the asset tree', async () => {
+    const fetchMock = vi.fn(async (input: string) => {
+      if (input === '/api/books/book-1') return { ok: true, json: async () => detailWithChapter() }
+      if (input === '/api/books/book-1/sessions') return { ok: true, json: async () => ({ sessions: [] }) }
+      if (input === '/api/books/book-1/publications') return { ok: true, json: async () => ({ publications: [] }) }
+      if (input === '/api/chapters/chapter-1/content') return { ok: true, json: async () => ({ chapter: { id: 'chapter-1', title: '雾夜失踪', chapterNumber: 1 }, content: '# 第1章' }) }
+      if (input === '/api/books/book-1/assets') return { ok: true, json: async () => ({ tree: [{ path: '设定', name: '设定', type: 'dir', children: [] }] }) }
+      throw new Error(`unexpected fetch ${input}`)
+    })
+    ;(globalThis as any).fetch = fetchMock
+    render(<BookWorkspacePage bookId="book-1" />)
+    fireEvent.click(await screen.findByText('资产'))
+    expect(await screen.findByText('设定')).toBeTruthy()
+  })
 })
