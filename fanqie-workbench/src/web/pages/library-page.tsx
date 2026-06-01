@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { BookCreationModal } from '../components/book-creation-modal.js'
+import { CoverModal } from '../components/cover-modal.js'
 import { spacing, fontSize, radius } from '../styles/tokens.js'
 
 type Book = { id: string; title: string; root_path: string; account_id: string | null }
@@ -64,25 +65,11 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
     }
   }
 
-  const [coveringId, setCoveringId] = useState<string | null>(null)
+  const [coverBook, setCoverBook] = useState<Book | null>(null)
 
-  const generateCover = async (book: Book, e: React.MouseEvent) => {
+  const openCover = (book: Book, e: React.MouseEvent) => {
     e.stopPropagation()
-    setError(null)
-    setScanMessage(null)
-    setCoveringId(book.id)
-    try {
-      const response = await fetch(`/api/books/${book.id}/cover`, { method: 'POST' })
-      const body = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(body.error || '封面生成失败')
-      }
-      setScanMessage(`《${book.title}》封面已生成：${body.path ?? '封面.png'}`)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '封面生成失败')
-    } finally {
-      setCoveringId(null)
-    }
+    setCoverBook(book)
   }
 
   return (
@@ -114,7 +101,7 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
                 <strong>{book.title}</strong>
                 <div style={{ color: 'var(--text-muted)', marginTop: spacing.xs }}>{book.root_path}</div>
               </button>
-              <button onClick={(e) => void generateCover(book, e)} disabled={coveringId === book.id} title="生成封面" style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: radius.md, background: 'transparent', color: 'var(--text-primary)', cursor: coveringId === book.id ? 'default' : 'pointer', fontSize: fontSize.sm, flexShrink: 0 }}>{coveringId === book.id ? '生成中…' : '生成封面'}</button>
+              <button onClick={(e) => openCover(book, e)} title="生成封面" style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: radius.md, background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', fontSize: fontSize.sm, flexShrink: 0 }}>生成封面</button>
               <button onClick={(e) => void deleteBook(book, e)} title="删除此书" style={{ padding: '8px 12px', border: '1px solid var(--border)', borderRadius: radius.md, background: 'transparent', color: 'var(--red)', cursor: 'pointer', fontSize: fontSize.sm, flexShrink: 0 }}>删除</button>
             </div>
           ))}
@@ -132,6 +119,13 @@ export function LibraryPage({ onOpenBook }: { onOpenBook: (bookId: string) => vo
           setBookCreationOpen(false)
           void loadBooks()
         }}
+      />
+
+      <CoverModal
+        open={!!coverBook}
+        book={coverBook}
+        onClose={() => setCoverBook(null)}
+        onSaved={() => void loadBooks()}
       />
     </section>
   )

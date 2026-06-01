@@ -19,7 +19,7 @@ import type { PlatformAccountRecord } from '../../domain/platform-account.js'
 import type { SupportedPlatform } from '../../domain/platform.js'
 import { runPublishJob } from '../../publish/publish-runner.js'
 import { AdapterNotConfiguredError } from '../../publish/publisher-adapter.js'
-import { generateCover } from '../cover-service.js'
+import { buildCoverPrompt, generateCover, inferGenre, saveCoverImage } from '../cover-service.js'
 
 function getDatabasePath() {
   return process.env.WORKBENCH_DB || 'data/workbench.sqlite'
@@ -545,9 +545,11 @@ export async function registerBookRoutes(app: FastifyInstance) {
   )
 
   // Generate a cover image into the book root via an OpenAI-compatible
-  // /images/generations endpoint. Image config defaults to the writing relay's
-  // key/base (OPENAI_API_KEY / OPENAI_BASE_URL) but can be overridden by
-  // IMAGE_API_KEY / IMAGE_BASE_URL / IMAGE_MODEL for a dedicated image provider.
+  // /images/generations endpoint. Image generation is a SEPARATE provider from
+  // the writing model (the writing relay has no image account), mirroring the
+  // story-cover skill's convention: a dedicated GPT_IMAGE_API_KEY / GPT_IMAGE_BASE_URL
+  // / GPT_IMAGE_MODEL. We fall back to the legacy IMAGE_* names, then to the
+  // writing relay's OPENAI_* as a last resort.
   app.post<{ Params: { bookId: string } }>(
     '/api/books/:bookId/cover',
     async (request, reply) => {
@@ -565,11 +567,13 @@ export async function registerBookRoutes(app: FastifyInstance) {
         return reply.code(409).send({ error: 'book is still being created' })
       }
 
-      const apiKey = process.env.IMAGE_API_KEY ?? process.env.OPENAI_API_KEY ?? ''
-      const baseUrl = process.env.IMAGE_BASE_URL ?? process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
-      const model = process.env.IMAGE_MODEL ?? 'gpt-image-1'
+      const apiKey =
+        process.env.GPT_IMAGE_API_KEY ?? process.env.IMAGE_API_KEY ?? process.env.OPENAI_API_KEY ?? ''
+      const baseUrl =
+        process.env.GPT_IMAGE_BASE_URL ?? process.env.IMAGE_BASE_URL ?? process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
+      const model = process.env.GPT_IMAGE_MODEL ?? process.env.IMAGE_MODEL ?? 'gpt-image-2'
       if (!apiKey) {
-        return reply.code(503).send({ error: 'image API key is not configured (set IMAGE_API_KEY or OPENAI_API_KEY)' })
+        return reply.code(503).send({ error: 'image API key is not configured (set GPT_IMAGE_API_KEY)' })
       }
 
       try {
@@ -581,4 +585,51 @@ export async function registerBookRoutes(app: FastifyInstance) {
       }
     },
   )
+
+  // Return the genre-matched cover prompt for a book. Used by the manual fallback
+  // flow: the user copies this, generates an image in ChatGPT, then uploads it back.
+  app.get<{ Params: { bookId: string } }>(
+    '/api/books/:bookId/cover/prompt',
+    async (request, reply) => {
+      const book = lookupBook(request.params.bookId)
+      if (!book) return reply.code(404).send({ error: 'book not found' })
+      if (book.root_path.startsWith('pending:')) {
+        return reply.code(409).send({ error: 'book is still being created' })
+      }
+      return reply.send({ prompt: buildCoverPrompt(book.title), genre: inferGenre(book.title) })
+    },
+  )
+
+  // Manual fallback: accept a user-supplied image (data URL or base64) and save it
+  // as 封面.png inside the book root. Body limit raised to fit a full-size cover.
+  app.post<{ Params: { bookId: string }; Body: { image?: string } }>(
+    '/api/books/:bookId/cover/upload',
+    { bodyLimit: 16 * 1024 * 1024 },
+    async (request, reply) => {
+      const book = lookupBook(request.params.bookId)
+      if (!book) return reply.code(404).send({ error: 'book not found' })
+      if (book.root_path.startsWith('pending:')) {
+        return reply.code(409).send({ error: 'book is still being created' })
+      }
+      const image = request.body?.image
+      if (!image) return reply.code(400).send({ error: 'no image data provided' })
+      try {
+        const result = await saveCoverImage({ bookRoot: book.root_path, image })
+        return reply.code(201).send({ status: 'done', bookId: book.id, path: result.path })
+      } catch (err: any) {
+        return reply.code(400).send({ error: err?.message ?? '封面保存失败' })
+      }
+    },
+  )
+
+  function lookupBook(bookId: string): { id: string; title: string; root_path: string } | undefined {
+    const db = openDatabase(getDatabasePath())
+    try {
+      return db.prepare('SELECT id, title, root_path FROM books WHERE id = ?').get(bookId) as
+        | { id: string; title: string; root_path: string }
+        | undefined
+    } finally {
+      db.close()
+    }
+  }
 }

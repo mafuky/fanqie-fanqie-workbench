@@ -2,15 +2,55 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildCoverPrompt, generateCover } from '../../src/server/cover-service.js'
+import { buildCoverPrompt, decodeImageData, generateCover, inferGenre, saveCoverImage } from '../../src/server/cover-service.js'
 
 let root: string
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'cover-')) })
 afterEach(() => { rmSync(root, { recursive: true, force: true }) })
 
+describe('inferGenre', () => {
+  it('detects ancient romance from palace keywords', () => {
+    expect(inferGenre('长嫡归朝')).toBe('ancient-romance')
+  })
+  it('detects xianxia from sword/dao keywords', () => {
+    expect(inferGenre('剑道独尊')).toBe('xianxia')
+  })
+  it('detects supernatural from tomb-raiding keywords', () => {
+    expect(inferGenre('盗墓笔记')).toBe('supernatural')
+  })
+  it('falls back to modern-romance for untagged titles', () => {
+    expect(inferGenre('那年盛夏')).toBe('modern-romance')
+  })
+})
+
 describe('buildCoverPrompt', () => {
-  it('embeds the book title', () => {
-    expect(buildCoverPrompt('雾港疑局')).toContain('雾港疑局')
+  it('embeds the book title in a Title text line', () => {
+    expect(buildCoverPrompt('雾港疑局')).toContain("Title text '雾港疑局'")
+  })
+
+  it('defaults to the 番茄 platform style', () => {
+    expect(buildCoverPrompt('雾港疑局')).toContain('mass-market novel cover style')
+  })
+
+  it('uses the genre-specific title font (ancient romance → Kai script)', () => {
+    expect(buildCoverPrompt('长嫡归朝')).toContain('Kai script')
+  })
+
+  it('honors a platform override', () => {
+    expect(buildCoverPrompt('那年盛夏', { platform: '晋江' })).toContain('dreamy ethereal aesthetic')
+  })
+
+  it('adds an author-name line only when an author is provided', () => {
+    expect(buildCoverPrompt('那年盛夏', { author: '慕雨' })).toContain("Author name '慕雨'")
+    expect(buildCoverPrompt('那年盛夏')).not.toContain('Author name')
+  })
+
+  it('honors an explicit genre override', () => {
+    expect(buildCoverPrompt('某都市文', { genre: 'scifi' })).toContain('Sci-fi cyberpunk')
+  })
+
+  it('always requests a portrait 2:3 cover', () => {
+    expect(buildCoverPrompt('雾港疑局')).toContain('portrait 2:3 ratio')
   })
 })
 
@@ -73,5 +113,33 @@ describe('generateCover', () => {
       apiKey: '', baseUrl: 'https://img.example/v1', model: 'gpt-image-1',
       title: 'T', bookRoot: root,
     })).rejects.toThrow(/key/i)
+  })
+})
+
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03])
+
+describe('decodeImageData', () => {
+  it('decodes a data URL into image bytes', () => {
+    const out = decodeImageData('data:image/png;base64,' + PNG.toString('base64'))
+    expect(out.equals(PNG)).toBe(true)
+  })
+  it('decodes a raw base64 string', () => {
+    expect(decodeImageData(PNG.toString('base64')).equals(PNG)).toBe(true)
+  })
+  it('throws on empty input', () => {
+    expect(() => decodeImageData('')).toThrow(/no image data/i)
+  })
+  it('throws on non-image data', () => {
+    expect(() => decodeImageData(Buffer.from('hello world!!').toString('base64'))).toThrow(/unsupported image/i)
+  })
+})
+
+describe('saveCoverImage', () => {
+  it('writes 封面.png from a data URL', async () => {
+    const result = await saveCoverImage({ bookRoot: root, image: 'data:image/png;base64,' + PNG.toString('base64') })
+    expect(result.path).toBe('封面.png')
+    const abs = join(root, '封面.png')
+    expect(existsSync(abs)).toBe(true)
+    expect(readFileSync(abs).equals(PNG)).toBe(true)
   })
 })

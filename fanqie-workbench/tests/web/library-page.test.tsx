@@ -155,20 +155,22 @@ describe('LibraryPage writing loop entry', () => {
     })
   })
 
-  it('renders a 生成封面 button per book and posts to the cover endpoint on click', async () => {
-    ;(globalThis as any).fetch = vi.fn(async (input: string, init?: RequestInit) => {
+  it('opens the cover modal and loads the genre-matched prompt on click', async () => {
+    ;(globalThis as any).fetch = vi.fn(async (input: string) => {
       if (input === '/api/books') return { ok: true, json: async () => ({ books: [{ id: 'book-1', title: '雾港疑局', root_path: '/tmp/book', account_id: null }] }) }
-      if (input === '/api/books/book-1/cover' && init?.method === 'POST') return { ok: true, status: 201, json: async () => ({ status: 'done', path: '封面.png' }) }
+      if (input === '/api/books/book-1/cover/prompt') return { ok: true, json: async () => ({ prompt: "Chinese web novel cover design. Title text '雾港疑局' at top center.", genre: 'modern-romance' }) }
       throw new Error(`unexpected fetch ${input}`)
     })
 
     render(<LibraryPage onOpenBook={vi.fn()} />)
 
-    const coverBtn = await screen.findByText('生成封面')
-    fireEvent.click(coverBtn)
+    fireEvent.click(await screen.findByText('生成封面'))
 
+    expect(await screen.findByTestId('cover-modal')).toBeTruthy()
     await waitFor(() => {
-      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/books/book-1/cover', expect.objectContaining({ method: 'POST' }))
+      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/books/book-1/cover/prompt')
     })
+    const promptBox = await screen.findByTestId('cover-prompt')
+    await waitFor(() => expect((promptBox as HTMLTextAreaElement).value).toContain('雾港疑局'))
   })
 })
