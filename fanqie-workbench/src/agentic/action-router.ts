@@ -3,6 +3,7 @@ import { checkMaterialsPhase } from './phases/check-materials.js'
 import { writeChapterPhase } from './phases/write-chapter.js'
 import { updateTrackingPhase } from './phases/update-tracking.js'
 import { writeOutlinePhase } from './phases/write-outline.js'
+import { polishChapterPhase } from './phases/polish-chapter.js'
 import { reviseChapterPhase } from './phases/revise-chapter.js'
 import { deslopChapterPhase } from './phases/deslop-chapter.js'
 import { reviewChapterPhase } from './phases/review-chapter.js'
@@ -16,7 +17,7 @@ const ACTION_PHASES: Record<string, Phase[]> = {
   'chapter.revise': [loadContextPhase, reviseChapterPhase],
   'chapter.deslop': [loadContextPhase, deslopChapterPhase],
   'chapter.review': [loadContextPhase, reviewChapterPhase],
-  'chapter.next': [loadContextPhase, writeOutlinePhase, writeChapterPhase, updateTrackingPhase],
+  'chapter.next': [loadContextPhase, writeOutlinePhase, writeChapterPhase, polishChapterPhase, updateTrackingPhase],
   'book.create': [clarifyDirectionPhase, scaffoldBookPhase],
 }
 

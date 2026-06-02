@@ -30,8 +30,8 @@ describe('routeAction', () => {
     expect(routeAction('chapter.review').map((p) => p.name)).toEqual(['load-context', 'review-chapter'])
   })
 
-  it('routes chapter.next to the four-phase one-shot pipeline', () => {
-    expect(routeAction('chapter.next').map((p) => p.name)).toEqual(['load-context', 'write-outline', 'write-chapter', 'update-tracking'])
+  it('routes chapter.next to the one-shot pipeline with a polish pass after writing', () => {
+    expect(routeAction('chapter.next').map((p) => p.name)).toEqual(['load-context', 'write-outline', 'write-chapter', 'polish-chapter', 'update-tracking'])
   })
 
   it('throws for unknown action', () => {
