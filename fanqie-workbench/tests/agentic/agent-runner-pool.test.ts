@@ -76,6 +76,51 @@ describe('AgentRunnerPool', () => {
     await waitForFinish(r1)
   })
 
+  it('cancel frees the slot immediately so another book can run (maxConcurrent)', async () => {
+    const db = memDb()
+    const pool = createAgentRunnerPool({
+      provider: slowProvider, traceStore: createTraceStore(db), toolRegistry: createToolRegistry(),
+      maxConcurrent: 1, model: 'gpt-5',
+    })
+    await pool.start({
+      bookId: 'b1', chapterId: 'c1',
+      bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
+      chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      phases: [phase], actionKey: 'chapter.continue', sessionId: 's1', emitter: new EventEmitter(),
+    })
+    expect(pool.activeCount()).toBe(1)
+    pool.cancel('b1')
+    expect(pool.activeCount()).toBe(0)
+    const r2 = await pool.start({
+      bookId: 'b2', chapterId: 'c1',
+      bookMeta: { id: 'b2', title: 'T2', rootPath: '/tmp/2' },
+      chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      phases: [phase], actionKey: 'chapter.continue', sessionId: 's2', emitter: new EventEmitter(),
+    })
+    await waitForFinish(r2)
+    expect(r2.status).toBe('succeeded')
+  })
+
+  it('calls onSettled when the run finishes', async () => {
+    const db = memDb()
+    const pool = createAgentRunnerPool({
+      provider: slowProvider, traceStore: createTraceStore(db), toolRegistry: createToolRegistry(),
+      maxConcurrent: 1, model: 'gpt-5',
+    })
+    let settled = false
+    const r1 = await pool.start({
+      bookId: 'b1', chapterId: 'c1',
+      bookMeta: { id: 'b1', title: 'T', rootPath: '/tmp' },
+      chapter: { id: 'c1', chapterNumber: 1, title: 't', sourcePath: 'a.md', stage: '待写作' },
+      phases: [phase], actionKey: 'chapter.continue', sessionId: 's1', emitter: new EventEmitter(),
+      onSettled: () => { settled = true },
+    })
+    await waitForFinish(r1)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(settled).toBe(true)
+    expect(pool.activeCount()).toBe(0)
+  })
+
   it('releases slot when runner finishes', async () => {
     const db = memDb()
     const pool = createAgentRunnerPool({

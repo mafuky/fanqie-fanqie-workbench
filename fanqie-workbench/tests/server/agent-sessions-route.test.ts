@@ -48,6 +48,22 @@ describe('agent-sessions routes', () => {
     expect(r.statusCode).toBe(409)
   })
 
+  it('release endpoint clears the running guard so a stuck book can start again', async () => {
+    // never-resolving provider → the run never settles, so the book stays "running"
+    const blockingProvider = { name: 'blocking', chat: () => new Promise<never>(() => {}) }
+    const { app } = buildApp(blockingProvider)
+    await app.inject({ method: 'POST', url: '/api/agent-sessions', payload: { actionKey: 'chapter.continue', bookId: 'b1', chapterId: 'c1' } })
+    const blocked = await app.inject({ method: 'POST', url: '/api/agent-sessions', payload: { actionKey: 'chapter.continue', bookId: 'b1', chapterId: 'c1' } })
+    expect(blocked.statusCode).toBe(409)
+
+    const rel = await app.inject({ method: 'POST', url: '/api/agent-sessions/release/b1' })
+    expect(rel.statusCode).toBe(200)
+    expect(rel.json().released).toBe(true)
+
+    const again = await app.inject({ method: 'POST', url: '/api/agent-sessions', payload: { actionKey: 'chapter.continue', bookId: 'b1', chapterId: 'c1' } })
+    expect(again.statusCode).toBe(200)
+  })
+
   it('POST /api/agent-sessions/:id/cancel returns 200', async () => {
     const { app } = buildApp()
     const start = await app.inject({ method: 'POST', url: '/api/agent-sessions', payload: { actionKey: 'chapter.continue', bookId: 'b1', chapterId: 'c1' } })

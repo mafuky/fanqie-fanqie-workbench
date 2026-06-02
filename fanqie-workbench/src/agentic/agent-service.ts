@@ -29,6 +29,8 @@ export interface AgentStartInput {
   emitter: EventEmitter
   onBookNamed?: (title: string) => Promise<{ title: string; rootPath: string }>
   initialResults?: Record<string, unknown>
+  /** Called exactly once when the run settles; routes use it to free their book guard. */
+  onSettled?: () => void
 }
 
 export interface AgentService {
@@ -93,6 +95,7 @@ export function createAgentService(opts: AgentServiceOptions): AgentService {
         emitter: input.emitter,
         onBookNamed: input.onBookNamed,
         initialResults: input.initialResults,
+        onSettled: input.onSettled,
       })
     },
   }

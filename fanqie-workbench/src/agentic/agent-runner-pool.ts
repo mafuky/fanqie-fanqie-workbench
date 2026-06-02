@@ -25,6 +25,8 @@ export interface PoolStartInput {
   emitter: EventEmitter
   onBookNamed?: (title: string) => Promise<{ title: string; rootPath: string }>
   initialResults?: Record<string, unknown>
+  /** Called exactly once when the run settles (success/fail/cancel), after the slot is freed. */
+  onSettled?: () => void
 }
 
 export interface AgentRunnerPool {
@@ -40,7 +42,11 @@ export function createAgentRunnerPool(opts: AgentRunnerPoolOptions): AgentRunner
   return {
     activeCount() { return active.size },
     get(bookId) { return active.get(bookId) ?? null },
-    cancel(bookId) { active.get(bookId)?.cancel() },
+    cancel(bookId) {
+      active.get(bookId)?.cancel()
+      // Free the slot immediately so a cancelled book never stays "running".
+      active.delete(bookId)
+    },
     async start(input) {
       if (active.has(input.bookId)) {
         throw new Error(`book ${input.bookId} already running`)
@@ -63,10 +69,16 @@ export function createAgentRunnerPool(opts: AgentRunnerPoolOptions): AgentRunner
         initialResults: input.initialResults,
       })
       active.set(input.bookId, runner)
-      input.emitter.on('event', (ev: any) => {
-        if (ev.type === 'done') active.delete(input.bookId)
+      // Authoritative cleanup: runner.start() settles exactly once when the run truly ends
+      // (it catches internally and never rejects). Relying on this — instead of the 'done'
+      // event reaching a listener — guarantees the slot is freed even if the event is missed.
+      void runner.start().finally(() => {
+        // Only release if this runner still owns the slot — a cancel may have freed it and a
+        // newer run for the same book may have taken over (don't clobber the newer one).
+        if (active.get(input.bookId) !== runner) return
+        active.delete(input.bookId)
+        input.onSettled?.()
       })
-      void runner.start()
       return runner
     },
   }

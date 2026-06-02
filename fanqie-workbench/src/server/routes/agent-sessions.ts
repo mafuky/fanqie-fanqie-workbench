@@ -47,9 +47,6 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       sessionEmitters.set(sessionId, emitter)
       sessionToBook.set(sessionId, bookId)
       activeBookIds.add(bookId)
-      emitter.on('event', (ev: any) => {
-        if (ev.type === 'done') activeBookIds.delete(bookId)
-      })
       try {
         const runner = await deps.service.start({
           actionKey,
@@ -59,6 +56,7 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
             sourcePath: chapter.source_path, stage: chapter.stage,
           },
           sessionId, emitter,
+          onSettled: () => activeBookIds.delete(bookId),
           ...(instruction ? { initialResults: { reviseInstruction: instruction } } : {}),
         })
         return { sessionId, status: runner.status, traceId: runner.traceId }
@@ -82,6 +80,18 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       deps.service.cancel(bookId)
       activeBookIds.delete(bookId)
       return { ok: true }
+    },
+  )
+
+  // Emergency unblock: clear a book's "running" guard without restarting the server
+  // (e.g. if a run somehow died without settling). Also cancels any in-flight runner.
+  app.post<{ Params: { bookId: string } }>(
+    '/api/agent-sessions/release/:bookId',
+    async (req) => {
+      const { bookId } = req.params
+      const released = activeBookIds.delete(bookId)
+      deps.service.cancel(bookId)
+      return { ok: true, released }
     },
   )
 
@@ -180,6 +190,7 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
           chapter: null,
           sessionId, emitter,
           onBookNamed,
+          onSettled: () => activeBookIds.delete(bookId),
         })
         return { sessionId, bookId, status: runner.status, traceId: runner.traceId }
       } catch (err: any) {
@@ -228,9 +239,6 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       sessionEmitters.set(sessionId, emitter)
       sessionToBook.set(sessionId, bookId)
       activeBookIds.add(bookId)
-      emitter.on('event', (ev: any) => {
-        if (ev.type === 'done') activeBookIds.delete(bookId)
-      })
 
       try {
         const runner = await deps.service.start({
@@ -238,6 +246,7 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
           bookMeta: { id: book.id, title: book.title, rootPath: book.root_path },
           chapter: { id: chapterId, chapterNumber: next, title: `第${next}章`, sourcePath, stage: '待写作' },
           sessionId, emitter,
+          onSettled: () => activeBookIds.delete(bookId),
         })
         return { sessionId, chapterId, status: runner.status, traceId: runner.traceId }
       } catch (err: any) {
