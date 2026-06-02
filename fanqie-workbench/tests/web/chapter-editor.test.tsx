@@ -86,6 +86,36 @@ describe('ChapterEditor', () => {
     expect(await screen.findByDisplayValue('新内容')).toBeTruthy()
   })
 
+  it('rewrites a swiped sentence: AI bar → candidate → replaces the selection', async () => {
+    ;(globalThis as any).fetch = vi.fn(async (input: string, init?: RequestInit) => {
+      if (input === '/api/chapters/chapter-1/content' && !init) {
+        return { ok: true, json: async () => ({ chapter: { id: 'chapter-1', title: 't', chapterNumber: 1 }, content: '他微微一笑。然后离开了。' }) }
+      }
+      if (input === '/api/sentence/revise' && init?.method === 'POST') {
+        return { ok: true, json: async () => ({ candidates: ['他笑了笑。', '他咧了咧嘴。'] }) }
+      }
+      throw new Error(`unexpected fetch ${input}`)
+    })
+
+    render(<ChapterEditor chapterId="chapter-1" />)
+    const editor = (await screen.findByLabelText('章节正文')) as HTMLTextAreaElement
+
+    // "swipe"-select the first sentence "他微微一笑。" (indices 0..6)
+    editor.focus()
+    editor.setSelectionRange(0, 6)
+    fireEvent.select(editor)
+
+    fireEvent.click(await screen.findByText('去AI味'))
+
+    await waitFor(() => {
+      expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/sentence/revise', expect.objectContaining({ method: 'POST' }))
+    })
+
+    fireEvent.click(await screen.findByText('他笑了笑。'))
+
+    await waitFor(() => expect(editor.value).toBe('他笑了笑。然后离开了。'))
+  })
+
   it('shows load error and retries chapter content load', async () => {
     let shouldFail = true
     ;(globalThis as any).fetch = vi.fn(async (input: string, init?: RequestInit) => {

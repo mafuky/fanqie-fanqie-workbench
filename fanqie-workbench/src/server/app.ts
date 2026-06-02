@@ -16,6 +16,7 @@ import { registerBookAssetsRoutes } from './routes/book-assets.js'
 import { createAgentService } from '../agentic/agent-service.js'
 import { createOpenAiProvider } from '../agentic/providers/openai-provider.js'
 import { registerAgentSessionsRoutes, getSessionEmitter, getSessionBook } from './routes/agent-sessions.js'
+import { registerSentenceRoutes } from './routes/sentence.js'
 import { registerAgentWsRoute } from './routes/agent-ws.js'
 import { createTraceStore } from '../agentic/trace-store.js'
 import { openDatabase } from '../db/client.js'
@@ -69,13 +70,15 @@ export async function buildServer(opts: BuildServerOptions = {}) {
       timeoutMs: Number(process.env.AGENT_REQUEST_TIMEOUT_MS ?? 120_000),
       maxRetries: Number(process.env.AGENT_MAX_RETRIES ?? 2),
     })
+    const model = process.env.AGENT_DEFAULT_MODEL ?? 'gpt-5.4-mini'
     const agentService = createAgentService({
       db,
       provider,
-      model: process.env.AGENT_DEFAULT_MODEL ?? 'gpt-5.4-mini',
+      model,
       maxConcurrent: Number(process.env.AGENT_MAX_CONCURRENT_BOOKS ?? 5),
     })
     registerAgentSessionsRoutes(app, { db, service: agentService })
+    registerSentenceRoutes(app, { provider, model })
     registerAgentWsRoute(app, {
       getSessionEmitter,
       getSessionTraceId: (sessionId) => {
