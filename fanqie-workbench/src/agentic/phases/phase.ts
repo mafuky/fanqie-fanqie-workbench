@@ -38,4 +38,16 @@ export interface Phase {
    * model for a bounded number of repair rounds, then fails the phase if still unmet.
    */
   verify?(ctx: PhaseContext): Promise<string[]>
+  /**
+   * Deterministic gate, run before the model loop. Return false to skip this phase
+   * entirely (no model call). Throwing is treated as a real error (run fails) unless
+   * the phase is also nonFatal.
+   */
+  shouldRun?(ctx: PhaseContext): Promise<boolean>
+  /**
+   * When true, any failure in this phase (shouldRun / model loop / verify / onComplete)
+   * is logged and swallowed — the run continues and still succeeds. For non-blocking
+   * side-effect phases (e.g. volume-reconcile) that must never break the main pipeline.
+   */
+  nonFatal?: boolean
 }

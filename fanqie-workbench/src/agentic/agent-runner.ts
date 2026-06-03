@@ -73,6 +73,14 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
         for (const phase of opts.phases) {
           checkCancelled()
           currentPhase = phase.name
+          try {
+          if (phase.shouldRun) {
+            const ok = await phase.shouldRun({
+              bookId: opts.bookId, bookRoot: opts.bookMeta.rootPath, chapterId: opts.chapterId,
+              bookMeta: opts.bookMeta, chapter: opts.chapter, previousPhaseResults,
+            })
+            if (!ok) continue // skip — no phase-start, no model call
+          }
           emit({ type: 'phase-start', phase: phase.name })
           const ctx: PhaseContext = {
             bookId: opts.bookId, bookRoot: opts.bookMeta.rootPath, chapterId: opts.chapterId,
@@ -164,6 +172,14 @@ export function createAgentRunner(opts: AgentRunnerOptions): AgentRunner {
             }
           }
           emit({ type: 'phase-done', phase: phase.name })
+          } catch (phaseErr: any) {
+            if (cancelled) throw phaseErr
+            if (phase.nonFatal) {
+              emit({ type: 'message', phase: phase.name, role: 'assistant', content: `[非阻塞] 阶段「${phase.name}」失败已忽略：${phaseErr?.message ?? phaseErr}` })
+              continue
+            }
+            throw phaseErr
+          }
         }
         status = 'succeeded'
         opts.traceStore.endTrace(traceId, 'succeeded')
