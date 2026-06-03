@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type Database from 'better-sqlite3'
-import { createReviewCheckpoint } from '../db/repositories/review-checkpoints-repo.js'
+import { createReviewCheckpoint, getActiveVolumeReconcile, type VolumeReconcilePayload } from '../db/repositories/review-checkpoints-repo.js'
 
 type ChapterForReview = {
   id: string
@@ -36,5 +36,25 @@ export function createChapterCompleteReviewCheckpoint(db: Database.Database, inp
     },
     changedFiles: [input.chapter.chapterPath, ...trackingCandidates],
     options: [...CHAPTER_COMPLETE_OPTIONS],
+  })
+}
+
+export function createVolumeReconcileCheckpoint(db: Database.Database, input: {
+  sessionId: string
+  bookId: string
+  payload: VolumeReconcilePayload
+}) {
+  const existing = getActiveVolumeReconcile(db, input.bookId, input.payload.volumeKey)
+  if (existing) return existing // DB-side dedup: one active reconcile per (book, volume)
+  return createReviewCheckpoint(db, {
+    sessionId: input.sessionId,
+    bookId: input.bookId,
+    chapterId: null,
+    stage: 'volume-reconcile',
+    title: `${input.payload.volumeKey}对账:计划 vs 实际`,
+    summary: { completed: ['已对照卷纲计划与各章实际,检出偏差'], checks: ['确认偏差描述,可编辑后追加进卷纲'] },
+    changedFiles: [],
+    options: ['apply', 'apply-edited', 'skip'],
+    payload: input.payload,
   })
 }
