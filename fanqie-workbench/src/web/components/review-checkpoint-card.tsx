@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { fontSize, radius, spacing } from '../styles/tokens.js'
 
-type ReviewAction = 'accept' | 'deslop' | 'rewrite' | 'continue-next' | 'save-only'
+type ReviewAction = 'accept' | 'deslop' | 'rewrite' | 'continue-next' | 'save-only' | 'apply' | 'apply-edited' | 'skip'
 
 type ReviewCheckpoint = {
   id: string
+  stage?: string
   title: string
   summary: {
     completed: string[]
@@ -13,6 +14,7 @@ type ReviewCheckpoint = {
   changedFiles: string[]
   options: ReviewAction[]
   status: string
+  payload?: { volumeKey: string; proposalText: string; arcNote?: string } | null
 }
 
 const actionLabels: Record<ReviewAction, string> = {
@@ -21,6 +23,9 @@ const actionLabels: Record<ReviewAction, string> = {
   rewrite: '回炉重写',
   'continue-next': '继续下一章',
   'save-only': '只保存，不继续',
+  apply: '应用追加',
+  'apply-edited': '编辑后应用',
+  skip: '跳过',
 }
 
 export function ReviewCheckpointCard({
@@ -36,6 +41,7 @@ export function ReviewCheckpointCard({
 }) {
   const [checkpoint, setCheckpoint] = useState<ReviewCheckpoint | null>(null)
   const [comment, setComment] = useState('')
+  const [editedText, setEditedText] = useState('')
   const [loading, setLoading] = useState(false)
   const [resolvingAction, setResolvingAction] = useState<ReviewAction | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -54,6 +60,9 @@ export function ReviewCheckpointCard({
         const body = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(body.error || '加载审阅点失败')
         if (!cancelled) setCheckpoint(body.checkpoint ?? null)
+        if (!cancelled && body.checkpoint?.stage === 'volume-reconcile') {
+          setEditedText(body.checkpoint.payload?.proposalText ?? '')
+        }
       })
       .catch((reason) => {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason))
@@ -75,7 +84,11 @@ export function ReviewCheckpointCard({
       const response = await fetch(`/api/review-checkpoints/${checkpoint.id}/resolve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, comment }),
+        body: JSON.stringify(
+          checkpoint?.stage === 'volume-reconcile'
+            ? { action, editedText }
+            : { action, comment },
+        ),
       })
       const body = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -137,20 +150,20 @@ export function ReviewCheckpointCard({
             </div>
           )}
 
-          <textarea
-            value={comment}
-            onChange={(event) => setComment(event.currentTarget.value)}
-            placeholder="给回炉、去 AI 味或下一步补充要求…"
-            style={{
-              minHeight: 72,
-              padding: spacing.sm,
-              borderRadius: radius.md,
-              border: '1px solid var(--border)',
-              background: 'var(--bg-secondary)',
-              color: 'var(--text-primary)',
-              fontFamily: 'inherit',
-            }}
-          />
+          {checkpoint.stage === 'volume-reconcile' ? (
+            <textarea
+              value={editedText}
+              onChange={(e) => setEditedText(e.currentTarget.value)}
+              style={{ minHeight: 160, padding: spacing.sm, borderRadius: radius.md, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontFamily: 'inherit' }}
+            />
+          ) : (
+            <textarea
+              value={comment}
+              onChange={(event) => setComment(event.currentTarget.value)}
+              placeholder="给回炉、去 AI 味或下一步补充要求…"
+              style={{ minHeight: 72, padding: spacing.sm, borderRadius: radius.md, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontFamily: 'inherit' }}
+            />
+          )}
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.sm }}>
             {checkpoint.options.map((action) => (
