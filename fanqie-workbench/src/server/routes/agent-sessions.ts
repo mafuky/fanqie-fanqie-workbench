@@ -9,6 +9,7 @@ import type { AgentService } from '../../agentic/agent-service.js'
 import { producedStage } from '../../domain/chapter.js'
 import { advanceChapterStage } from '../../db/repositories/chapters-repo.js'
 import { createVolumeReconcileCheckpoint } from '../review-checkpoint-service.js'
+import { updateSessionStatus } from '../../db/repositories/sessions-repo.js'
 
 export interface AgentSessionsDeps {
   db: Database.Database
@@ -38,6 +39,21 @@ export function ensureAgentSessionRow(
     `INSERT OR IGNORE INTO sessions (id, kind, book_id, chapter_id, status, created_at, updated_at)
      VALUES (?, 'agent', ?, ?, 'running', ?, ?)`,
   ).run(input.sessionId, input.bookId, input.chapterId, now, now)
+}
+
+/**
+ * Transition the agent's backfilled sessions row to a terminal status when the run settles,
+ * so a finished run stops being reported as the book's "active" session (see books summary).
+ */
+export function wireSessionStatusOnDone(
+  db: Database.Database,
+  emitter: EventEmitter,
+  sessionId: string,
+) {
+  emitter.on('event', (ev: any) => {
+    if (ev?.type !== 'done') return
+    try { updateSessionStatus(db, sessionId, ev.status === 'succeeded' ? 'succeeded' : 'failed') } catch { /* ignore */ }
+  })
 }
 
 /** Mirror of wireStageAdvance: turn a tool-emitted reconcile event into a checkpoint. */
@@ -94,6 +110,7 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       activeBookIds.add(bookId)
       ensureAgentSessionRow(deps.db, { sessionId, bookId, chapterId })
       wireReviewCheckpointRequest(deps.db, emitter, { sessionId, bookId })
+      wireSessionStatusOnDone(deps.db, emitter, sessionId)
       wireStageAdvance(emitter, chapterId, actionKey)
       try {
         const runner = await deps.service.start({
@@ -289,6 +306,7 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       activeBookIds.add(bookId)
       ensureAgentSessionRow(deps.db, { sessionId, bookId, chapterId })
       wireReviewCheckpointRequest(deps.db, emitter, { sessionId, bookId })
+      wireSessionStatusOnDone(deps.db, emitter, sessionId)
       wireStageAdvance(emitter, chapterId, 'chapter.next')
 
       try {

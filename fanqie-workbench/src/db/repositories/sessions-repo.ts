@@ -191,6 +191,20 @@ export function updateSessionStatus(
   )
 }
 
+/**
+ * On server boot the in-memory agent session state (emitters) is gone, so any kind='agent'
+ * session still left in a non-terminal status is dead. Mark them failed so the books summary
+ * stops reporting them as the "active" session (which would mount a dead live panel → the
+ * "session not found" WebSocket error). Returns the number of rows healed.
+ */
+export function reconcileStaleAgentSessions(db: Database.Database): number {
+  const res = db.prepare(
+    `UPDATE sessions SET status = 'failed', updated_at = ?
+     WHERE kind = 'agent' AND status IN ('running','waiting-answer','waiting-permission','waiting-review','paused')`,
+  ).run(new Date().toISOString())
+  return res.changes
+}
+
 export function updateSessionMetadata(
   db: Database.Database,
   id: string,

@@ -20,14 +20,19 @@ interface InProgressTool {
   argsBuffer: string
 }
 
-export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: (status: string) => void }) {
+export function AgentPanel({ sessionId, onDone, onStale }: { sessionId: string; onDone?: (status: string) => void; onStale?: () => void }) {
   const [events, setEvents] = useState<Event[]>([])
   const [textBuffers, setTextBuffers] = useState<Record<string, string>>({})
   const [toolBuffers, setToolBuffers] = useState<Record<string, Record<number, InProgressTool>>>({})
   const [customAnswer, setCustomAnswer] = useState('')
+  const [stale, setStale] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const customInputRef = useRef<HTMLInputElement | null>(null)
+  // Keep the latest onStale without re-running the socket effect; guard against firing twice.
+  const onStaleRef = useRef(onStale)
+  onStaleRef.current = onStale
+  const staleFiredRef = useRef(false)
 
   useEffect(() => {
     const el = scrollRef.current
@@ -45,6 +50,18 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
     wsRef.current = ws
     ws.addEventListener('message', (e: any) => {
       const msg = JSON.parse(e.data)
+      // A stale session (e.g. backend restarted after this run) reports "session not found".
+      // Don't spam the log with raw red errors — show one friendly notice and let the parent
+      // clear the dead session reference (which unmounts this panel).
+      if (msg.type === 'error' && /session not found/i.test(msg.message ?? '')) {
+        setStale(true)
+        ws.close()
+        if (!staleFiredRef.current) {
+          staleFiredRef.current = true
+          onStaleRef.current?.()
+        }
+        return
+      }
       if (msg.type === 'history') {
         setEvents(msg.events)
         return
@@ -142,6 +159,12 @@ export function AgentPanel({ sessionId, onDone }: { sessionId: string; onDone?: 
         padding: 8,
       }}
     >
+      {stale && (
+        <div style={{ color: '#c08a3e', padding: 8 }}>
+          会话已结束（可能因服务重启）。请刷新页面或重新发起操作。
+        </div>
+      )}
+
       {pendingQuestion && pendingQuestion.type === 'question' && (
         <div role="dialog" style={{ position: 'sticky', top: 0, zIndex: 1, border: '2px solid #007', padding: 12, marginBottom: 12, background: '#1a1a2e' }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>{pendingQuestion.question}</div>

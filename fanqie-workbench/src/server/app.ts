@@ -20,6 +20,7 @@ import { registerSentenceRoutes } from './routes/sentence.js'
 import { registerAgentWsRoute } from './routes/agent-ws.js'
 import { createTraceStore } from '../agentic/trace-store.js'
 import { openDatabase } from '../db/client.js'
+import { reconcileStaleAgentSessions } from '../db/repositories/sessions-repo.js'
 import type { AgentService } from '../agentic/agent-service.js'
 import type Database from 'better-sqlite3'
 
@@ -64,6 +65,9 @@ export async function buildServer(opts: BuildServerOptions = {}) {
   } else if (typeof window === 'undefined' && process.env.NODE_ENV !== 'test') {
     // Real server startup: create OpenAI-backed service
     const db = openDatabase(process.env.WORKBENCH_DB ?? 'data/workbench.sqlite')
+    // In-memory agent session state didn't survive this boot — heal any orphaned 'running'
+    // agent sessions so they aren't reported as active (would mount a dead live panel).
+    reconcileStaleAgentSessions(db)
     const provider = createOpenAiProvider({
       apiKey: process.env.OPENAI_API_KEY ?? '',
       baseUrl: process.env.OPENAI_BASE_URL,

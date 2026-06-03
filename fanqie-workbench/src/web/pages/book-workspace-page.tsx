@@ -209,6 +209,7 @@ export function BookWorkspacePage({ bookId, onBack }: { bookId: string; onBack?:
             <AgentPanel
               sessionId={activeSessionId}
               onDone={() => void refreshAfterSessionChange()}
+              onStale={() => setActiveSessionId(null)}
             />
           )}
         </main>
