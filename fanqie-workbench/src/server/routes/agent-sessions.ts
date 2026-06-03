@@ -6,6 +6,9 @@ import { join, resolve as resolvePath } from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import type Database from 'better-sqlite3'
 import type { AgentService } from '../../agentic/agent-service.js'
+import { producedStage } from '../../domain/chapter.js'
+import { advanceChapterStage } from '../../db/repositories/chapters-repo.js'
+import { createVolumeReconcileCheckpoint } from '../review-checkpoint-service.js'
 
 export interface AgentSessionsDeps {
   db: Database.Database
@@ -25,11 +28,53 @@ export function getSessionBook(sessionId: string): string | undefined {
   return sessionToBook.get(sessionId)
 }
 
+/** Agent runs don't create a sessions row, but review_checkpoints.session_id FK needs one. */
+export function ensureAgentSessionRow(
+  db: Database.Database,
+  input: { sessionId: string; bookId: string; chapterId: string | null },
+) {
+  const now = new Date().toISOString()
+  db.prepare(
+    `INSERT OR IGNORE INTO sessions (id, kind, book_id, chapter_id, status, created_at, updated_at)
+     VALUES (?, 'agent', ?, ?, 'running', ?, ?)`,
+  ).run(input.sessionId, input.bookId, input.chapterId, now, now)
+}
+
+/** Mirror of wireStageAdvance: turn a tool-emitted reconcile event into a checkpoint. */
+export function wireReviewCheckpointRequest(
+  db: Database.Database,
+  emitter: EventEmitter,
+  input: { sessionId: string; bookId: string },
+) {
+  emitter.on('event', (ev: any) => {
+    if (ev?.type !== 'review-checkpoint-requested' || ev.stage !== 'volume-reconcile') return
+    try {
+      createVolumeReconcileCheckpoint(db, { sessionId: input.sessionId, bookId: input.bookId, payload: ev.payload })
+    } catch (err) {
+      console.error('[volume-reconcile] failed to create checkpoint', err)
+    }
+  })
+}
+
 export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSessionsDeps) {
   // Route-level guard: tracks which bookIds have an active (started-but-not-yet-done) session.
   // This is separate from the pool's internal `active` map so that a route-level "already running"
   // check persists until the emitter fires `done`, regardless of how quickly the pool runner finishes.
   const activeBookIds = new Set<string>()
+
+  // On a successful writing run, advance the chapter's DB stage to match what the action
+  // produced (待写作 -> 已初稿 for write, 已去AI for deslop, 已审稿 for review). Forward-only,
+  // so a later re-run never regresses a more advanced stage. Without this the chapter stays
+  // "待写作" forever even though its 正文 file is fully written.
+  function wireStageAdvance(emitter: EventEmitter, chapterId: string, actionKey: string) {
+    const target = producedStage(actionKey)
+    if (!target) return
+    emitter.on('event', (ev: any) => {
+      if (ev?.type === 'done' && ev.status === 'succeeded') {
+        try { advanceChapterStage(deps.db, chapterId, target) } catch { /* ignore */ }
+      }
+    })
+  }
 
   app.post<{ Body: { actionKey: string; bookId: string; chapterId: string; instruction?: string } }>(
     '/api/agent-sessions',
@@ -47,6 +92,9 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       sessionEmitters.set(sessionId, emitter)
       sessionToBook.set(sessionId, bookId)
       activeBookIds.add(bookId)
+      ensureAgentSessionRow(deps.db, { sessionId, bookId, chapterId })
+      wireReviewCheckpointRequest(deps.db, emitter, { sessionId, bookId })
+      wireStageAdvance(emitter, chapterId, actionKey)
       try {
         const runner = await deps.service.start({
           actionKey,
@@ -239,6 +287,9 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
       sessionEmitters.set(sessionId, emitter)
       sessionToBook.set(sessionId, bookId)
       activeBookIds.add(bookId)
+      ensureAgentSessionRow(deps.db, { sessionId, bookId, chapterId })
+      wireReviewCheckpointRequest(deps.db, emitter, { sessionId, bookId })
+      wireStageAdvance(emitter, chapterId, 'chapter.next')
 
       try {
         const runner = await deps.service.start({
@@ -254,6 +305,8 @@ export function registerAgentSessionsRoutes(app: FastifyInstance, deps: AgentSes
         sessionToBook.delete(sessionId)
         activeBookIds.delete(bookId)
         // Roll back the placeholder chapter row so a failed start leaves no ghost chapter.
+        // Drop the backfilled session row first: its chapter_id FK would otherwise block the delete.
+        try { deps.db.prepare(`DELETE FROM sessions WHERE id = ?`).run(sessionId) } catch { /* ignore */ }
         try { deps.db.prepare(`DELETE FROM chapters WHERE id = ?`).run(chapterId) } catch { /* ignore */ }
         if (/already running|concurrent limit/i.test(err.message)) {
           return reply.code(409).send({ error: err.message })
