@@ -5,7 +5,7 @@ describe('routeAction', () => {
   it('returns phase sequence for chapter.continue', () => {
     const phases = routeAction('chapter.continue')
     expect(phases.map((p) => p.name)).toEqual([
-      'load-context', 'check-materials', 'write-chapter', 'update-tracking',
+      'load-context', 'check-materials', 'write-chapter', 'update-tracking', 'volume-reconcile',
     ])
   })
 
@@ -31,7 +31,7 @@ describe('routeAction', () => {
   })
 
   it('routes chapter.next to the one-shot pipeline with a polish pass after writing', () => {
-    expect(routeAction('chapter.next').map((p) => p.name)).toEqual(['load-context', 'write-outline', 'write-chapter', 'polish-chapter', 'update-tracking'])
+    expect(routeAction('chapter.next').map((p) => p.name)).toEqual(['load-context', 'write-outline', 'write-chapter', 'polish-chapter', 'update-tracking', 'volume-reconcile'])
   })
 
   it('throws for unknown action', () => {

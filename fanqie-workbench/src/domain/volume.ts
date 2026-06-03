@@ -17,6 +17,18 @@ export function chineseNumeralToInt(raw: string): number | null {
   return null
 }
 
+const NUMERALS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九']
+
+/** int(1..99) → 中文数字(一..九十九);超出范围回退为阿拉伯数字字符串。 */
+export function intToChineseNumeral(n: number): string {
+  if (!Number.isInteger(n) || n < 0 || n > 99) return String(n)
+  if (n < 10) return NUMERALS[n]
+  const tens = Math.floor(n / 10)
+  const ones = n % 10
+  const tensPart = tens === 1 ? '十' : `${NUMERALS[tens]}十`
+  return ones === 0 ? tensPart : `${tensPart}${NUMERALS[ones]}`
+}
+
 /** 卷纲_第X卷.md → 卷号(X 为中文数字);否则 null。 */
 export function parseVolumeFileName(filename: string): number | null {
   const m = filename.match(/^卷纲_第(.+)卷\.md$/)
