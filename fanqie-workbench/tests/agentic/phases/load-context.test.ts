@@ -20,6 +20,16 @@ describe('load-context phase', () => {
     expect(prompt).toContain('第5章')
   })
 
+  it('reads 角色状态 so it knows who currently knows what (anti-spoiler)', () => {
+    const prompt = loadContextPhase.systemPrompt({
+      bookId: 'b1', bookRoot: '/x/书', chapterId: 'c1',
+      bookMeta: { id: 'b1', title: '测试书', rootPath: '/x/书' } as any,
+      chapter: { id: 'c1', chapterNumber: 5, title: '第五章', sourcePath: '正文/第005章.md', stage: '待写作' } as any,
+      previousPhaseResults: {},
+    })
+    expect(prompt).toContain('角色状态')
+  })
+
   it('initialUserMessage asks to summarize context for the chapter', () => {
     const msg = loadContextPhase.initialUserMessage({
       bookId: 'b1', bookRoot: '/x', chapterId: 'c1',

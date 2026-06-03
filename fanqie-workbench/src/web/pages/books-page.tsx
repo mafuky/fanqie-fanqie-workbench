@@ -92,7 +92,7 @@ type BookSessionRecord = {
 
 type BookEntryProgressStep = '生成书名' | '生成简介' | '生成大纲' | '生成章节目录' | '创建书籍' | '进入工作台'
 
-const ALL_STAGES: ChapterStage[] = ['待写作', '已初稿', '已去AI', '已审稿', '可发布', '发布中', '已发布']
+const ALL_STAGES: ChapterStage[] = ['待写作', '已初稿', '已去AI', '已审稿', '可发布', '已发布']
 const EMPTY_SUMMARY: BookSummary = {
   totalChapters: 0,
   byStage: {
@@ -101,7 +101,6 @@ const EMPTY_SUMMARY: BookSummary = {
     '已去AI': 0,
     '已审稿': 0,
     '可发布': 0,
-    '发布中': 0,
     '已发布': 0,
   },
   publishableCount: 0,
@@ -115,7 +114,6 @@ const stageBadgeVariant: Record<ChapterStage, 'neutral' | 'warning' | 'success' 
   '已去AI': 'warning',
   '已审稿': 'neutral',
   '可发布': 'success',
-  '发布中': 'error',
   '已发布': 'success',
 }
 
@@ -145,11 +143,6 @@ const stageBadgeStyleByTheme: Record<'dark' | 'light', Record<ChapterStage, Reac
       background: '#243027',
       color: '#b9d1ae',
       border: '1px solid #36483a',
-    },
-    '发布中': {
-      background: '#382523',
-      color: '#e0a29b',
-      border: '1px solid #553330',
     },
     '已发布': {
       background: '#223026',
@@ -182,11 +175,6 @@ const stageBadgeStyleByTheme: Record<'dark' | 'light', Record<ChapterStage, Reac
       background: '#e8efe1',
       color: '#5f7750',
       border: '1px solid #d3dfc7',
-    },
-    '发布中': {
-      background: '#f4ddd7',
-      color: '#965547',
-      border: '1px solid #e7beb3',
     },
     '已发布': {
       background: '#e7efe3',

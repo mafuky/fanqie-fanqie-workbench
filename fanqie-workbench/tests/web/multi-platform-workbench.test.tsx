@@ -298,7 +298,7 @@ describe('multi-platform workbench UI', () => {
           ],
           summary: {
             totalChapters: 1,
-            byStage: { '待写作': 0, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 1, '发布中': 0, '已发布': 0 },
+            byStage: { '待写作': 0, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 1, '已发布': 0 },
             publishableCount: 1,
             activeSessionId: null,
             activeChapterId: null,

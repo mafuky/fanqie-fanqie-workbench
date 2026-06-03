@@ -135,7 +135,7 @@ describe('BooksPage book entry', () => {
           chapters: [{ id: 'c1', chapter_number: 1, title: '雾夜失踪', stage: '已初稿' }],
           summary: {
             totalChapters: 1,
-            byStage: { '待写作': 0, '已初稿': 1, '已去AI': 0, '已审稿': 0, '可发布': 0, '发布中': 0, '已发布': 0 },
+            byStage: { '待写作': 0, '已初稿': 1, '已去AI': 0, '已审稿': 0, '可发布': 0, '已发布': 0 },
             publishableCount: 0,
             activeSessionId: null,
             activeChapterId: null,
@@ -165,7 +165,7 @@ describe('BooksPage book entry', () => {
           chapters: [{ id: 'c1', chapter_number: 1, title: '雾夜失踪', stage: '已初稿' }],
           summary: {
             totalChapters: 1,
-            byStage: { '待写作': 0, '已初稿': 1, '已去AI': 0, '已审稿': 0, '可发布': 0, '发布中': 0, '已发布': 0 },
+            byStage: { '待写作': 0, '已初稿': 1, '已去AI': 0, '已审稿': 0, '可发布': 0, '已发布': 0 },
             publishableCount: 0,
             activeSessionId: null,
             activeChapterId: null,

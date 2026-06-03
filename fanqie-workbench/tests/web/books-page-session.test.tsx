@@ -102,7 +102,7 @@ describe('BooksPage session model', () => {
           chapters: [{ id: 'c1', chapter_number: 1, title: '雾夜失踪', stage: '待写作' }],
           summary: {
             totalChapters: 1,
-            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '发布中': 0, '已发布': 0 },
+            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '已发布': 0 },
             publishableCount: 0,
             activeSessionId: 's-active',
             activeChapterId: 'c1',
@@ -150,7 +150,7 @@ describe('BooksPage session model', () => {
           chapters: [{ id: 'c1', chapter_number: 1, title: '雾夜失踪', stage: '待写作' }],
           summary: {
             totalChapters: 1,
-            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '发布中': 0, '已发布': 0 },
+            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '已发布': 0 },
             publishableCount: 0,
             activeSessionId: 's-book',
             activeChapterId: 'c1',
@@ -187,7 +187,7 @@ describe('BooksPage session model', () => {
           chapters: [{ id: 'c1', chapter_number: 1, title: '雾夜失踪', stage: '待写作' }],
           summary: {
             totalChapters: 1,
-            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '发布中': 0, '已发布': 0 },
+            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '已发布': 0 },
             publishableCount: 0,
             activeSessionId: null,
             activeChapterId: null,
@@ -233,7 +233,7 @@ describe('BooksPage session model', () => {
           chapters: [{ id: 'c1', chapter_number: 1, title: '雾夜失踪', stage: '待写作' }],
           summary: {
             totalChapters: 1,
-            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '发布中': 0, '已发布': 0 },
+            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '已发布': 0 },
             publishableCount: 0,
             activeSessionId: null,
             activeChapterId: null,
@@ -279,7 +279,7 @@ describe('BooksPage session model', () => {
           chapters: [{ id: 'c1', chapter_number: 1, title: '雾夜失踪', stage: '待写作' }],
           summary: {
             totalChapters: 1,
-            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '发布中': 0, '已发布': 0 },
+            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '已发布': 0 },
             publishableCount: 0,
             activeSessionId: null,
             activeChapterId: null,
@@ -331,7 +331,7 @@ describe('BooksPage session model', () => {
           chapters: [{ id: 'c1', chapter_number: 1, title: '雾夜失踪', stage: '待写作' }],
           summary: {
             totalChapters: 1,
-            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '发布中': 0, '已发布': 0 },
+            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '已发布': 0 },
             publishableCount: 0,
             activeSessionId: null,
             activeChapterId: null,
@@ -382,7 +382,7 @@ describe('BooksPage session model', () => {
           ],
           summary: {
             totalChapters: 2,
-            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 1, '发布中': 0, '已发布': 0 },
+            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 1, '已发布': 0 },
             publishableCount: 1,
             activeSessionId: 's-book',
             activeChapterId: 'c1',
@@ -430,7 +430,7 @@ describe('BooksPage session model', () => {
           chapters: [{ id: 'c1', chapter_number: 1, title: '雾夜失踪', stage: '待写作' }],
           summary: {
             totalChapters: 1,
-            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '发布中': 0, '已发布': 0 },
+            byStage: { '待写作': 1, '已初稿': 0, '已去AI': 0, '已审稿': 0, '可发布': 0, '已发布': 0 },
             publishableCount: 0,
             activeSessionId: 's-review',
             activeChapterId: 'c1',

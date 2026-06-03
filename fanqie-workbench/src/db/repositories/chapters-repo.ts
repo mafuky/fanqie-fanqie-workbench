@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
 import type { ChapterRecord, ChapterStage } from '../../domain/chapter.js'
+import { stageRank } from '../../domain/chapter.js'
 
 type ChapterRow = {
   id: string
@@ -37,4 +38,23 @@ export function updateChapterRemoteId(db: Database.Database, chapterId: string, 
 
 export function updateChapterStage(db: Database.Database, chapterId: string, stage: ChapterStage) {
   db.prepare('UPDATE chapters SET stage = ? WHERE id = ?').run(stage, chapterId)
+}
+
+/**
+ * Advance a chapter's stage forward-only: writes `to` only if it is strictly later
+ * than the chapter's current stage. Never regresses (re-running a draft won't undo
+ * a 已审稿). Returns the resulting stage, or null if the chapter doesn't exist.
+ */
+export function advanceChapterStage(
+  db: Database.Database,
+  chapterId: string,
+  to: ChapterStage,
+): ChapterStage | null {
+  const row = db.prepare('SELECT stage FROM chapters WHERE id = ?').get(chapterId) as
+    | { stage: ChapterStage }
+    | undefined
+  if (!row) return null
+  if (stageRank(to) <= stageRank(row.stage)) return row.stage
+  db.prepare('UPDATE chapters SET stage = ? WHERE id = ?').run(to, chapterId)
+  return to
 }

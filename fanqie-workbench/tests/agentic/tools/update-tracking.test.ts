@@ -17,6 +17,16 @@ describe('update_tracking tool', () => {
     expect(readFileSync(join(root, '追踪/上下文.md'), 'utf8')).toBe('snapshot')
   })
 
+  it('writes 角色状态 file', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'book-'))
+    const r = await updateTrackingTool.execute({
+      args: { file: '角色状态', content: 'who-knows-what' },
+      ctx: ctx(root),
+    })
+    expect(r.ok).toBe(true)
+    expect(readFileSync(join(root, '追踪/角色状态.md'), 'utf8')).toBe('who-knows-what')
+  })
+
   it('rejects unknown tracking file name', async () => {
     const root = mkdtempSync(join(tmpdir(), 'book-'))
     const r = await updateTrackingTool.execute({

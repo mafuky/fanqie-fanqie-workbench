@@ -5,6 +5,8 @@ import type Database from 'better-sqlite3'
 import { openDatabase } from '../client.js'
 import { scanBooks } from '../../fs/book-scanner.js'
 import { parseChapterFile } from '../../fs/chapter-parser.js'
+import { deriveInitialStage } from '../../domain/chapter.js'
+import { advanceChapterStage } from './chapters-repo.js'
 
 function hasColumn(db: Database.Database, table: string, column: string) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
@@ -93,6 +95,8 @@ export async function syncWorkspaceBooks({
         | undefined
       const chapterId = existingChapter?.id ?? crypto.randomUUID()
 
+      const stage = deriveInitialStage(chapter.body)
+
       if (existingChapter) {
         updateChapter.run(
           bookId,
@@ -101,6 +105,9 @@ export async function syncWorkspaceBooks({
           sourcePath,
           chapterId
         )
+        // Self-heal a stale status: a chapter whose file now holds real prose but is still
+        // 待写作 gets promoted to 已初稿. Forward-only — never regresses a 已去AI / 已审稿.
+        advanceChapterStage(db, chapterId, stage)
       } else {
         if (hasChapterRemoteId) {
           insertChapter.run(
@@ -109,7 +116,7 @@ export async function syncWorkspaceBooks({
             chapter.chapterNumber,
             chapter.title,
             sourcePath,
-            '待写作',
+            stage,
             null
           )
         } else {
@@ -119,7 +126,7 @@ export async function syncWorkspaceBooks({
             chapter.chapterNumber,
             chapter.title,
             sourcePath,
-            '待写作'
+            stage
           )
         }
       }

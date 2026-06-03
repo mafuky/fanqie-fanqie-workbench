@@ -3,16 +3,16 @@ import { dirname, join } from 'node:path'
 import type { Tool } from './tool.js'
 import { resolveInsideRoot } from './sandbox.js'
 
-const ALLOWED = new Set(['上下文', '伏笔', '时间线'])
+const ALLOWED = new Set(['上下文', '伏笔', '时间线', '角色状态'])
 
 export const updateTrackingTool: Tool = {
   spec: {
     name: 'update_tracking',
-    description: '更新追踪文件之一：上下文 / 伏笔 / 时间线。整文件覆盖写。',
+    description: '更新追踪文件之一：上下文 / 伏笔 / 时间线 / 角色状态。整文件覆盖写。',
     parameters: {
       type: 'object',
       properties: {
-        file: { type: 'string', enum: ['上下文', '伏笔', '时间线'] },
+        file: { type: 'string', enum: ['上下文', '伏笔', '时间线', '角色状态'] },
         content: { type: 'string' },
       },
       required: ['file', 'content'],

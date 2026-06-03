@@ -26,7 +26,7 @@ function getDatabasePath() {
 }
 const WORKSPACE_ROOT = resolve(import.meta.dirname, '..', '..', '..', '..')
 const NOVELS_ROOT = resolve(WORKSPACE_ROOT, 'novels')
-const ALL_STAGES: ChapterStage[] = ['待写作', '已初稿', '已去AI', '已审稿', '可发布', '发布中', '已发布']
+const ALL_STAGES: ChapterStage[] = ['待写作', '已初稿', '已去AI', '已审稿', '可发布', '已发布']
 const VALID_BOOK_PUBLICATION_STATUSES: BookPublicationStatus[] = ['draft', 'bound', 'paused']
 const CHAPTER_PUBLICATION_STATUSES: ChapterPublicationStatus[] = ['pending', 'synced', 'published', 'failed']
 

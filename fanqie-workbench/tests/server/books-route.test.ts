@@ -75,7 +75,6 @@ describe('books route', () => {
         '已去AI': 0,
         '已审稿': 0,
         '可发布': 1,
-        '发布中': 0,
         '已发布': 1,
       },
       publishableCount: 1,
