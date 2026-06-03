@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS review_checkpoints (
   status TEXT NOT NULL DEFAULT 'pending',
   created_at TEXT NOT NULL,
   resolved_at TEXT,
+  payload_json TEXT,
   FOREIGN KEY (session_id) REFERENCES sessions(id),
   FOREIGN KEY (book_id) REFERENCES books(id),
   FOREIGN KEY (chapter_id) REFERENCES chapters(id)

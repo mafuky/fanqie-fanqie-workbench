@@ -9,6 +9,7 @@ const additiveMigrations = [
   { table: 'sessions', column: 'claude_resume_id', sql: 'ALTER TABLE sessions ADD COLUMN claude_resume_id TEXT' },
   { table: 'sessions', column: 'compressed_at', sql: 'ALTER TABLE sessions ADD COLUMN compressed_at TEXT' },
   { table: 'sessions', column: 'context_snapshot_json', sql: 'ALTER TABLE sessions ADD COLUMN context_snapshot_json TEXT' },
+  { table: 'review_checkpoints', column: 'payload_json', sql: 'ALTER TABLE review_checkpoints ADD COLUMN payload_json TEXT' },
 ] as const
 
 function hasTable(db: Database.Database, table: string) {
