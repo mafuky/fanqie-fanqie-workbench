@@ -86,13 +86,13 @@ describe('ChapterEditor', () => {
     expect(await screen.findByDisplayValue('新内容')).toBeTruthy()
   })
 
-  it('rewrites a swiped sentence: AI bar → candidate → replaces the selection', async () => {
+  it('rewrites a multi-line selection: AI bar → candidate → diff → accept → replaces + toast', async () => {
     ;(globalThis as any).fetch = vi.fn(async (input: string, init?: RequestInit) => {
       if (input === '/api/chapters/chapter-1/content' && !init) {
-        return { ok: true, json: async () => ({ chapter: { id: 'chapter-1', title: 't', chapterNumber: 1 }, content: '他微微一笑。然后离开了。' }) }
+        return { ok: true, json: async () => ({ chapter: { id: 'chapter-1', title: 't', chapterNumber: 1 }, content: '他微微一笑。\n然后离开了。\n剩下她一人。' }) }
       }
       if (input === '/api/sentence/revise' && init?.method === 'POST') {
-        return { ok: true, json: async () => ({ candidates: ['他笑了笑。', '他咧了咧嘴。'] }) }
+        return { ok: true, json: async () => ({ candidates: ['他笑了笑。\n转身走了。', '他咧了咧嘴。\n抬脚就走。'] }) }
       }
       throw new Error(`unexpected fetch ${input}`)
     })
@@ -100,9 +100,9 @@ describe('ChapterEditor', () => {
     render(<ChapterEditor chapterId="chapter-1" />)
     const editor = (await screen.findByLabelText('章节正文')) as HTMLTextAreaElement
 
-    // "swipe"-select the first sentence "他微微一笑。" (indices 0..6)
+    // Select the first TWO lines "他微微一笑。\n然后离开了。" (indices 0..13) — a multi-line span.
     editor.focus()
-    editor.setSelectionRange(0, 6)
+    editor.setSelectionRange(0, 13)
     fireEvent.select(editor)
 
     fireEvent.click(await screen.findByText('去AI味'))
@@ -111,9 +111,19 @@ describe('ChapterEditor', () => {
       expect((globalThis as any).fetch).toHaveBeenCalledWith('/api/sentence/revise', expect.objectContaining({ method: 'POST' }))
     })
 
-    fireEvent.click(await screen.findByText('他笑了笑。'))
+    // The whole selection (both lines) was sent, not just one line.
+    const reviseCall = (globalThis as any).fetch.mock.calls.find((c: any[]) => c[0] === '/api/sentence/revise')
+    expect(JSON.parse(reviseCall[1].body).sentence).toBe('他微微一笑。\n然后离开了。')
 
-    await waitFor(() => expect(editor.value).toBe('他笑了笑。然后离开了。'))
+    // Pick a candidate → a diff preview appears (not an immediate replace).
+    fireEvent.click(await screen.findByText(/他笑了笑/))
+    expect(await screen.findByTestId('sentence-diff')).toBeTruthy()
+    expect(editor.value).toBe('他微微一笑。\n然后离开了。\n剩下她一人。') // unchanged until accepted
+
+    // Accept → replaces the selection, leaving the untouched third line intact, and shows a toast.
+    fireEvent.click(screen.getByText('接受'))
+    await waitFor(() => expect(editor.value).toBe('他笑了笑。\n转身走了。\n剩下她一人。'))
+    expect(await screen.findByTestId('editor-toast')).toBeTruthy()
   })
 
   it('shows load error and retries chapter content load', async () => {
