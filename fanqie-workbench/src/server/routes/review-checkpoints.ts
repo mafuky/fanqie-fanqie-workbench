@@ -1,3 +1,5 @@
+import { resolve as resolvePath, join } from 'node:path'
+import { readFile, writeFile } from 'node:fs/promises'
 import type { FastifyInstance } from 'fastify'
 import { openDatabase } from '../../db/client.js'
 import {
@@ -13,7 +15,8 @@ function getDatabasePath() {
   return process.env.WORKBENCH_DB || 'data/workbench.sqlite'
 }
 
-const supportedActions: ReviewCheckpointOption[] = ['accept', 'deslop', 'rewrite', 'continue-next', 'save-only']
+const CHAPTER_COMPLETE_ACTIONS: ReviewCheckpointOption[] = ['accept', 'deslop', 'rewrite', 'continue-next', 'save-only']
+const VOLUME_RECONCILE_ACTIONS: ReviewCheckpointOption[] = ['apply', 'apply-edited', 'skip']
 
 export async function registerReviewCheckpointRoutes(app: FastifyInstance) {
   app.get<{ Params: { sessionId: string } }>('/api/sessions/:sessionId/review-checkpoint', async (request) => {
@@ -28,17 +31,22 @@ export async function registerReviewCheckpointRoutes(app: FastifyInstance) {
 
   app.post<{
     Params: { checkpointId: string }
-    Body: { action?: ReviewCheckpointOption; comment?: string }
+    Body: { action?: ReviewCheckpointOption; comment?: string; editedText?: string }
   }>('/api/review-checkpoints/:checkpointId/resolve', async (request, reply) => {
     const { action, comment } = request.body || {}
     if (!action) return reply.code(400).send({ error: 'action is required' })
-    if (!supportedActions.includes(action)) return reply.code(400).send({ error: 'unsupported review action' })
 
     const db = openDatabase(getDatabasePath())
     try {
       const checkpoint = getReviewCheckpointById(db, request.params.checkpointId)
       if (!checkpoint) return reply.code(404).send({ error: 'checkpoint not found' })
       if (checkpoint.status !== 'pending') return reply.code(409).send({ error: 'checkpoint is not pending' })
+
+      if (checkpoint.stage === 'volume-reconcile') {
+        return await resolveVolumeReconcile(db, reply, checkpoint, action, request.body || {})
+      }
+      // chapter-complete path (existing behaviour):
+      if (!CHAPTER_COMPLETE_ACTIONS.includes(action)) return reply.code(400).send({ error: 'unsupported review action' })
       if (!checkpoint.chapterId) return reply.code(400).send({ error: 'checkpoint has no chapter' })
 
       if (action === 'accept') {
@@ -92,4 +100,53 @@ export async function registerReviewCheckpointRoutes(app: FastifyInstance) {
       db.close()
     }
   })
+}
+
+async function resolveVolumeReconcile(
+  db: ReturnType<typeof openDatabase>,
+  reply: any,
+  checkpoint: NonNullable<ReturnType<typeof getReviewCheckpointById>>,
+  action: ReviewCheckpointOption,
+  body: { editedText?: string },
+) {
+  if (!VOLUME_RECONCILE_ACTIONS.includes(action)) return reply.code(400).send({ error: 'unsupported review action' })
+  if (action === 'skip') {
+    const resolved = resolveReviewCheckpoint(db, checkpoint.id, 'dismissed')
+    return { checkpoint: resolved }
+  }
+  const payload = checkpoint.payload
+  if (!payload) return reply.code(400).send({ error: 'checkpoint has no payload' })
+  const text = action === 'apply-edited' ? (body.editedText ?? '') : payload.proposalText
+  if (!text.trim()) return reply.code(400).send({ error: 'editedText is required for apply-edited' })
+
+  // Resolve the target path from the trusted book root — never from payload.
+  const book = db.prepare('SELECT root_path FROM books WHERE id = ?').get(checkpoint.bookId) as { root_path: string } | undefined
+  if (!book) return reply.code(404).send({ error: 'book not found' })
+  const volumeNumberLabel = payload.volumeKey.replace(/^第/, '').replace(/卷$/, '')
+  const target = resolvePath(book.root_path, '大纲', `卷纲_第${volumeNumberLabel}卷.md`)
+  const allowedRoot = resolvePath(book.root_path, '大纲')
+  if (!target.startsWith(allowedRoot + '/') && target !== join(allowedRoot, `卷纲_第${volumeNumberLabel}卷.md`)) {
+    return reply.code(400).send({ error: 'target path escapes book outline dir' })
+  }
+
+  // Transactional claim: only the first resolver flips pending→accepted and writes.
+  const claim = db.prepare("UPDATE review_checkpoints SET status='accepted', resolved_at=? WHERE id=? AND status='pending'")
+  const claimed = db.transaction((id: string) => claim.run(new Date().toISOString(), id).changes)(checkpoint.id)
+  if (claimed === 0) return reply.code(409).send({ error: 'checkpoint already resolved' })
+
+  const anchor = `<!-- volume-reconcile:${payload.volumeKey} -->`
+  const existing = await readFile(target, 'utf8').catch(() => '')
+  const block = text.includes(anchor) ? text : text.replace(/\n/, `\n${anchor}\n`)
+  await writeFile(target, `${existing.replace(/\s*$/, '')}\n\n${block}\n`, 'utf8')
+
+  if (payload.arcNote) {
+    const arcCandidates = ['总纲.md', '大纲.md'].map((n) => resolvePath(book.root_path, '大纲', n))
+    for (const ap of arcCandidates) {
+      const cur = await readFile(ap, 'utf8').catch(() => null)
+      if (cur == null) continue
+      await writeFile(ap, `${cur.replace(/\s*$/, '')}\n\n## 对账记录\n${anchor}\n- ${payload.arcNote}\n`, 'utf8')
+      break
+    }
+  }
+  return { checkpoint: getReviewCheckpointById(db, checkpoint.id) }
 }
