@@ -8,5 +8,6 @@ export type AgentEvent =
   | { type: 'tool-result'; phase: string; toolCallId: string; name: string; result: string; ok: boolean }
   | { type: 'question'; question: string; options: Array<{ label: string }>; multiSelect: boolean }
   | { type: 'file-updated'; path: string }
+  | { type: 'review-checkpoint-requested'; stage: 'volume-reconcile'; payload: { volumeKey: string; proposalText: string; arcNote?: string } }
   | { type: 'error'; message: string }
   | { type: 'done'; status: 'succeeded' | 'failed' | 'cancelled' }

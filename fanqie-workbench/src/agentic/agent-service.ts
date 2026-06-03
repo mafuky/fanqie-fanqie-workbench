@@ -10,6 +10,7 @@ import { listDirTool } from './tools/list-dir.js'
 import { grepTool } from './tools/grep.js'
 import { writeFileTool } from './tools/write-file.js'
 import { updateTrackingTool } from './tools/update-tracking.js'
+import { proposeVolumeReconcileTool } from './tools/propose-volume-reconcile.js'
 import { createAskUserTool } from './tools/ask-user.js'
 import type { LlmProvider } from './providers/provider.js'
 import type { BookMeta, ChapterMeta } from './phases/phase.js'
@@ -50,6 +51,7 @@ export function createAgentService(opts: AgentServiceOptions): AgentService {
   tools.register(grepTool)
   tools.register(writeFileTool)
   tools.register(updateTrackingTool)
+  tools.register(proposeVolumeReconcileTool)
   tools.register(createAskUserTool({
     waitForAnswer: (bookId) => new Promise<string>((resolve) => {
       pendingAnswers.set(bookId, resolve)
