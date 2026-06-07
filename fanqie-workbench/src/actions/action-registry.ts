@@ -7,7 +7,6 @@ export type ActionKey =
   | 'editor.selection.polish'
   | 'editor.selection.rewrite'
   | 'market.scan'
-  | 'market.bindToBook'
   | 'publish.chapters'
 
 export type ActionScope = 'book' | 'chapter' | 'selection' | 'market' | 'publish'
@@ -29,7 +28,6 @@ const bindings: Record<ActionKey, CapabilityBinding> = {
   'editor.selection.polish': { actionKey: 'editor.selection.polish', scope: 'selection', capability: 'oh-story-claudecode', command: '/story-long-write' },
   'editor.selection.rewrite': { actionKey: 'editor.selection.rewrite', scope: 'selection', capability: 'oh-story-claudecode', command: '/story-long-write' },
   'market.scan': { actionKey: 'market.scan', scope: 'market', capability: 'oh-story-claudecode', command: 'market-scan-runner' },
-  'market.bindToBook': { actionKey: 'market.bindToBook', scope: 'market', capability: 'fanqie-workbench', command: 'bind-market-scan-to-book' },
   'publish.chapters': { actionKey: 'publish.chapters', scope: 'publish', capability: 'fanqie-workbench', command: 'publish-runner' },
 }
 

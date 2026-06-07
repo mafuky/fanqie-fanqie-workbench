@@ -20,7 +20,6 @@ const chapterActionByActionKey: Record<ActionKey, ChapterCommandAction | null> =
   'editor.selection.polish': null,
   'editor.selection.rewrite': null,
   'market.scan': null,
-  'market.bindToBook': null,
   'publish.chapters': null,
 }
 
