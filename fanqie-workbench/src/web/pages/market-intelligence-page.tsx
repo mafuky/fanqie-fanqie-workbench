@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { spacing, fontSize, radius } from '../styles/tokens.js'
+import { useToast } from '../components/ui/toast.js'
+import { MarketScanModal } from '../components/market-scan-modal.js'
 
 const presets = [
   { key: 'fanqie-female-reading', label: '番茄女频阅读榜' },
@@ -15,11 +17,17 @@ type Scan = { id: string; date: string; fileName: string; path?: string }
 export function MarketIntelligencePage() {
   const [scans, setScans] = useState<Scan[]>([])
   const [running, setRunning] = useState<string | null>(null)
+  const [openScanId, setOpenScanId] = useState<string | null>(null)
+  const toast = useToast()
 
   const loadScans = async () => {
-    const response = await fetch('/api/market-scans')
-    const body = await response.json()
-    setScans(body.scans || [])
+    try {
+      const response = await fetch('/api/market-scans')
+      const body = await response.json()
+      setScans(body.scans || [])
+    } catch (err) {
+      toast.error(`加载扫描列表失败：${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   useEffect(() => {
@@ -29,12 +37,22 @@ export function MarketIntelligencePage() {
   const runPreset = async (preset: string) => {
     setRunning(preset)
     try {
-      await fetch('/api/market-scans', {
+      const response = await fetch('/api/market-scans', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ preset }),
       })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok || body.status === 'failed') {
+        const detail = String(body.error ?? `HTTP ${response.status}`)
+        if (body.error) console.error('[market-scan]', body.error)
+        toast.error(`扫描失败：${detail.split('\n')[0].slice(0, 200)}`)
+        return
+      }
+      toast.success(`扫描完成：${body.outputFiles?.length ?? 0} 个结果`)
       await loadScans()
+    } catch (err) {
+      toast.error(`扫描失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setRunning(null)
     }
@@ -44,7 +62,7 @@ export function MarketIntelligencePage() {
     <section style={{ display: 'grid', gap: spacing.lg }}>
       <header>
         <h1 style={{ margin: 0, fontSize: fontSize.xxl }}>市场情报</h1>
-        <p style={{ color: 'var(--text-muted)' }}>第一阶段先接入手动扫榜和 Markdown 结果绑定。</p>
+        <p style={{ color: 'var(--text-muted)' }}>手动扫榜，点扫描结果可查看报告。</p>
       </header>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: spacing.md }}>
@@ -58,11 +76,23 @@ export function MarketIntelligencePage() {
       <section style={{ border: '1px solid var(--border)', borderRadius: radius.lg, padding: spacing.lg }}>
         <h2 style={{ marginTop: 0 }}>最近扫描结果</h2>
         {scans.map((scan) => (
-          <div key={scan.id} style={{ display: 'flex', alignItems: 'center', gap: spacing.md, padding: `${spacing.sm}px 0`, borderTop: '1px solid var(--border)' }}>
+          <div
+            key={scan.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => setOpenScanId(scan.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                setOpenScanId(scan.id)
+              }
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: spacing.md, padding: `${spacing.sm}px 0`, borderTop: '1px solid var(--border)', cursor: 'pointer' }}
+          >
             <span>{scan.fileName}</span>
             <span style={{ color: 'var(--text-muted)' }}>{scan.date}</span>
             <span style={{ flex: 1 }} />
-            <button>绑定到书</button>
+            <span style={{ color: 'var(--text-muted)', fontSize: fontSize.sm }}>查看报告 →</span>
           </div>
         ))}
         {scans.length === 0 && <div style={{ color: 'var(--text-muted)' }}>暂无扫描结果</div>}
@@ -72,6 +102,8 @@ export function MarketIntelligencePage() {
         <h2 style={{ marginTop: 0, color: 'var(--text-primary)' }}>趋势分析</h2>
         第一阶段展示扫描结果列表；趋势图表进入第二阶段。
       </section>
+
+      {openScanId && <MarketScanModal scanId={openScanId} onClose={() => setOpenScanId(null)} />}
     </section>
   )
 }
