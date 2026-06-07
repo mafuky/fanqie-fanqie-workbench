@@ -1,5 +1,6 @@
 /.claude/
 /.idea/
+/.superpowers/
 
 # OS / editor cruft
 .DS_Store
