@@ -1,12 +1,7 @@
 import type { FastifyInstance } from 'fastify'
-import { copyFile, mkdir, readdir, readFile } from 'node:fs/promises'
-import { basename, resolve } from 'node:path'
-import { openDatabase } from '../../db/client.js'
+import { readFile, readdir } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { runMarketScan } from '../../market/market-scan-runner.js'
-
-function getDatabasePath() {
-  return process.env.WORKBENCH_DB || 'data/workbench.sqlite'
-}
 
 function getWorkspaceRoot() {
   return process.env.WORKBENCH_ROOT || resolve(import.meta.dirname, '..', '..', '..', '..')
@@ -54,29 +49,6 @@ export async function registerMarketScanRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: 'market scan not found' })
       }
       throw err
-    }
-  })
-
-  app.post<{ Params: { scanId: string }; Body: { bookId?: string } }>('/api/market-scans/:scanId/bind-book', async (request, reply) => {
-    const { bookId } = request.body || {}
-    if (!bookId) return reply.code(400).send({ error: 'bookId is required' })
-
-    const scans = await listMarkdownScans()
-    const scan = scans.find((item) => item.id === decodeURIComponent(request.params.scanId))
-    if (!scan) return reply.code(404).send({ error: 'market scan not found' })
-
-    const db = openDatabase(getDatabasePath())
-    try {
-      const book = db.prepare('SELECT id, root_path FROM books WHERE id = ?').get(bookId) as { id: string; root_path: string } | undefined
-      if (!book) return reply.code(404).send({ error: 'book not found' })
-
-      const targetDir = resolve(book.root_path, '对标', '市场扫描')
-      await mkdir(targetDir, { recursive: true })
-      const boundPath = resolve(targetDir, basename(scan.path))
-      await copyFile(scan.path, boundPath)
-      return { bound: true, boundPath }
-    } finally {
-      db.close()
     }
   })
 }

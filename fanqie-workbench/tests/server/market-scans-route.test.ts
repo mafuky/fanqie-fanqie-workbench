@@ -72,25 +72,6 @@ describe('market scans route', () => {
     await app.close()
   })
 
-  it('binds a scan markdown file to a book', async () => {
-    const { bookRoot } = await createFixture('bind')
-    const { buildServer } = await import('../../src/server/app.js')
-    const app = await buildServer()
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/market-scans/2026-05-18%2Ffanqie-female-reading.md/bind-book',
-      payload: { bookId: 'book-1' },
-    })
-
-    expect(response.statusCode).toBe(200)
-    const body = JSON.parse(response.body)
-    expect(body.boundPath).toBe(resolve(bookRoot, '对标', '市场扫描', 'fanqie-female-reading.md'))
-    await expect(readFile(body.boundPath, 'utf8')).resolves.toContain('番茄女频阅读榜')
-
-    await app.close()
-  })
-
   it('returns markdown content for a valid scanId', async () => {
     await createFixture('content')
     const { buildServer } = await import('../../src/server/app.js')
