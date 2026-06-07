@@ -1,0 +1,4 @@
+# 把同一个人的多个 git 身份合并成一个，用于 git shortlog / GitHub 贡献者图
+# 格式: 规范身份 <规范邮箱> 旧身份 <旧邮箱>
+mafuyu <3056650542@qq.com> mafuky <62665037+mafuky@users.noreply.github.com>
+mafuyu <3056650542@qq.com> <noreply@anthropic.com>
