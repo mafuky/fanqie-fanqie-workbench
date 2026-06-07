@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { copyFile, mkdir, readdir } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { openDatabase } from '../../db/client.js'
 import { runMarketScan } from '../../market/market-scan-runner.js'
@@ -41,6 +41,21 @@ export async function registerMarketScanRoutes(app: FastifyInstance) {
   })
 
   app.get('/api/market-scans', async () => ({ scans: await listMarkdownScans() }))
+
+  app.get<{ Params: { scanId: string } }>('/api/market-scans/:scanId/content', async (request, reply) => {
+    const scans = await listMarkdownScans()
+    const scan = scans.find((item) => item.id === decodeURIComponent(request.params.scanId))
+    if (!scan) return reply.code(404).send({ error: 'market scan not found' })
+    try {
+      const content = await readFile(scan.path, 'utf8')
+      return { fileName: scan.fileName, content }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return reply.code(404).send({ error: 'market scan not found' })
+      }
+      throw err
+    }
+  })
 
   app.post<{ Params: { scanId: string }; Body: { bookId?: string } }>('/api/market-scans/:scanId/bind-book', async (request, reply) => {
     const { bookId } = request.body || {}

@@ -90,4 +90,50 @@ describe('market scans route', () => {
 
     await app.close()
   })
+
+  it('returns markdown content for a valid scanId', async () => {
+    await createFixture('content')
+    const { buildServer } = await import('../../src/server/app.js')
+    const app = await buildServer()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/market-scans/2026-05-18%2Ffanqie-female-reading.md/content',
+    })
+
+    expect(response.statusCode).toBe(200)
+    const body = JSON.parse(response.body)
+    expect(body.fileName).toBe('fanqie-female-reading.md')
+    expect(body.content).toContain('番茄女频阅读榜')
+
+    await app.close()
+  })
+
+  it('returns 404 for an unknown scanId', async () => {
+    await createFixture('content-404')
+    const { buildServer } = await import('../../src/server/app.js')
+    const app = await buildServer()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/market-scans/2026-05-18%2Fdoes-not-exist.md/content',
+    })
+
+    expect(response.statusCode).toBe(404)
+    await app.close()
+  })
+
+  it('does not serve files outside the scan root (path traversal)', async () => {
+    await createFixture('content-traversal')
+    const { buildServer } = await import('../../src/server/app.js')
+    const app = await buildServer()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/market-scans/' + encodeURIComponent('../../../../etc/passwd') + '/content',
+    })
+
+    expect(response.statusCode).toBe(404)
+    await app.close()
+  })
 })
